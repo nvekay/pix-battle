@@ -1,0 +1,52 @@
+{
+  "format": 1,
+  "mapgen": {
+    "octaves": 4,
+    "baseCellPx": 64,
+    "persistence_bp": 5000,
+    "edgeFalloffPx": 24,
+    "edgePenaltyPerPx": 4000,
+    "landShare_bp": 4700,
+    "minLandShare_bp": 4500,
+    "maxLandShare_bp": 4900,
+    "capitalCoastDist": 6,
+    "startFairnessMax_bp": 25000,
+    "startRadius": 8,
+    "mapRetries": 8,
+    "capitalRetries": 16
+  },
+  "front": {
+    "expandChance_bp": 120,
+    "warChance_bp": 180,
+    "stallRatio_bp": 8000,
+    "maxChance_bp": 800,
+    "garrisonPerEdge": 10,
+    "capitalRadius": 20,
+    "capitalMult_bp": 20000,
+    "defenseMultCap_bp": 40000
+  },
+  "economy": {
+    "startGold_c": 30000,
+    "startBattalions": 3,
+    "flatIncome_c": 200,
+    "pixelsPerGold": 2000,
+    "battalionCost_c": 20000,
+    "upkeep_c_per_battalion": 25,
+    "battalionCap": 60
+  },
+  "forts": {
+    "fortCosts_c": [40000, 60000, 90000, 135000, 202500],
+    "maxFortsPerNation": 8,
+    "fortRadius": 16,
+    "fortMinSpacing": 16,
+    "fortMult_bp": 30000
+  },
+  "strikes": {
+    "strikeMult_bp": 30000,
+    "strikeDurationTicks": 200
+  },
+  "end": {
+    "victoryShare_bp": 4000,
+    "timeoutTicks": 27000
+  }
+}

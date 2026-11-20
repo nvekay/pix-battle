@@ -26,6 +26,14 @@ namespace BattlePix.Core
             return h;
         }
 
+        public static ulong AddInt16(ulong h, short v)
+        {
+            ushort u = unchecked((ushort)v);
+            h = Add(h, (byte)u);
+            h = Add(h, (byte)(u >> 8));
+            return h;
+        }
+
         public static ulong AddUInt64(ulong h, ulong v)
         {
             for (int i = 0; i < 8; i++) h = Add(h, (byte)(v >> (8 * i)));
