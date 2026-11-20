@@ -39,6 +39,21 @@ namespace BattlePix.Core
         PixelOutOfMap = 1,
         OwnerOutOfRange = 2,
         UnknownType = 3,
+        /// <summary>Nation = 0, вне диапазона или мертва.</summary>
+        NationInvalid = 4,
+        NotEnoughGold = 5,
+        ArmyCap = 6,
+        NotOwnPixel = 7,
+        TooCloseToFort = 8,
+        FortLimit = 9,
+        NoBattalions = 10,
+        TargetInvalid = 11,
+        NoContact = 12,
+        /// <summary>Игровая команда в мире без правил.</summary>
+        RulesDisabled = 13,
+        /// <summary>Отладочная команда (DebugSetOwner) в мире с правилами.</summary>
+        DebugOnly = 14,
+        // Значения только дописываются.
     }
 
     public struct RejectedCommand

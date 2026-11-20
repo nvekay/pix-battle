@@ -4,7 +4,8 @@ using UnityEngine;
 namespace BattlePix.Game
 {
     /// <summary>
-    /// Рисует карту одним квадом: текстура владельцев R8 + палитра 256×1 в шейдере OwnerPalette.
+    /// Рисует карту одним квадом: текстура владельцев R8 + палитра 256×1 в шейдере OwnerPalette,
+    /// рельеф — второй R8-текстурой (грузится один раз за партию).
     /// Только читает мир и только между тиками.
     /// </summary>
     [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
@@ -12,8 +13,10 @@ namespace BattlePix.Game
     {
         static readonly int OwnerTexId = Shader.PropertyToID("_OwnerTex");
         static readonly int PaletteTexId = Shader.PropertyToID("_PaletteTex");
+        static readonly int TerrainTexId = Shader.PropertyToID("_TerrainTex");
 
         Texture2D _ownerTex;
+        Texture2D _terrainTex;
         Texture2D _paletteTex;
         MeshRenderer _renderer;
         Material _material;
@@ -33,6 +36,12 @@ namespace BattlePix.Game
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp,
             };
+            _terrainTex = new Texture2D(width, height, TextureFormat.R8, false, true)
+            {
+                name = "TerrainTex",
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+            };
             _paletteTex = new Texture2D(256, 1, TextureFormat.RGBA32, false, false)
             {
                 name = "PaletteTex",
@@ -46,10 +55,20 @@ namespace BattlePix.Game
             _material = _renderer.material; // экземпляр, чтобы не писать в ассет
             _material.SetTexture(OwnerTexId, _ownerTex);
             _material.SetTexture(PaletteTexId, _paletteTex);
+            _material.SetTexture(TerrainTexId, _terrainTex);
 
             // Квад 1×1 растягиваем на карту: 1 пиксель карты = 1 юнит мира, центр в нуле.
             transform.localPosition = Vector3.zero;
             transform.localScale = new Vector3(width, height, 1f);
+        }
+
+        /// <summary>Рельеф не меняется за партию: грузится один раз после генерации карты.</summary>
+        public void UploadTerrain(World world)
+        {
+            if (_terrainTex == null) return;
+            var dst = _terrainTex.GetPixelData<byte>(0);
+            world.Terrain.CopyTo(dst);
+            _terrainTex.Apply(false);
         }
 
         /// <summary>Если мир помечен изменённым, копирует Owner в текстуру и сбрасывает dirty-диапазон.</summary>
@@ -75,9 +94,11 @@ namespace BattlePix.Game
         {
             if (_ownerTex != null) Destroy(_ownerTex);
             if (_paletteTex != null) Destroy(_paletteTex);
+            if (_terrainTex != null) Destroy(_terrainTex);
             if (_material != null) Destroy(_material);
             _ownerTex = null;
             _paletteTex = null;
+            _terrainTex = null;
             _material = null;
         }
 

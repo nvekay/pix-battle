@@ -16,6 +16,10 @@ namespace BattlePix.Core
     public sealed class Simulation : IDisposable
     {
         public SimConfig Config { get; }
+        /// <summary>Правила партии. null — мир Фундамента (старый конструктор, DebugPaint).</summary>
+        public Rules Rules { get; }
+        /// <summary>Нация под человеком. 0 — все нации под ИИ (headless).</summary>
+        public byte HumanNation { get; }
         public World World { get; }
         public CommandQueue Queue { get; }
         public SystemPipeline Pipeline { get; }
@@ -39,9 +43,34 @@ namespace BattlePix.Core
         public ulong LastHash { get; private set; }
         public bool HasHash { get; private set; }
 
+        /// <summary>Мир Фундамента: без правил, число наций из debugPaint.nations. На нём живут тесты этапа 0.</summary>
         public Simulation(SimConfig config, ulong seed, int tickLimit = 0)
             : this(config, seed, tickLimit, SystemPipeline.CreateDefault(config))
         {
+        }
+
+        /// <summary>
+        /// Партия с правилами: карта генерируется здесь же, до тика 0, и попадает в первый хеш.
+        /// tickLimit — страховочный лимит (0 — без лимита), настоящий конец задают правила.
+        /// </summary>
+        public Simulation(SimConfig config, Rules rules, ulong seed, int tickLimit, byte humanNation)
+        {
+            if (config == null) throw new ArgumentNullException(nameof(config));
+            if (rules == null) throw new ArgumentNullException(nameof(rules));
+            if (tickLimit < 0) throw new ArgumentOutOfRangeException(nameof(tickLimit));
+            if (humanNation > rules.NationCount) throw new ArgumentOutOfRangeException(nameof(humanNation));
+            config.Validate();
+            Config = config;
+            Rules = rules;
+            HumanNation = humanNation;
+            Seed = seed;
+            TickLimit = tickLimit;
+            World = new World(config.Width, config.Height, rules.NationCount, seed, rules);
+            MapGenerator.Generate(World);
+            World.MarkAllDirty();
+            Queue = new CommandQueue(config.CommandHorizonTicks);
+            Pipeline = SystemPipeline.CreateWithRules(config, rules);
+            _ctx = new CommandContext(config, rules, humanNation);
         }
 
         public Simulation(SimConfig config, ulong seed, int tickLimit, SystemPipeline pipeline)
@@ -126,6 +155,8 @@ namespace BattlePix.Core
                 case CommandType.Noop:
                     return RejectReason.None;
                 case CommandType.DebugSetOwner:
+                    // В мире с правилами владельцев меняет только фронт: иначе разойдутся Pixels, Frontier и FrontLen.
+                    if (Rules != null) return RejectReason.DebugOnly;
                     if (c.A < 0 || c.A >= World.PixelCount) return RejectReason.PixelOutOfMap;
                     if (c.B < 0 || c.B > World.NationCount) return RejectReason.OwnerOutOfRange;
                     return RejectReason.None;

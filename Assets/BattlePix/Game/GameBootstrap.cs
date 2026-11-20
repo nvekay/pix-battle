@@ -22,6 +22,7 @@ namespace BattlePix.Game
 
         GameData _data;
         SimConfig _config;
+        Rules _rules;
         Color32[] _palette;
         Simulation _sim;
         TickClock _clock;
@@ -54,7 +55,8 @@ namespace BattlePix.Game
         {
             _data = data;
             _dataHash = data.DataHash;
-            _config = SimConfig.FromJson(data.Text(GameData.ConfigFile));
+            _config = data.Config();
+            _rules = data.Rules();
             _palette = NationInfo.BuildPalette(NationInfo.ParseList(data.Text(GameData.NationsFile)));
             mapView.Init(_config.Width, _config.Height, _palette);
             StartNewMatch(ParseSeed(defaultSeed));
@@ -88,7 +90,8 @@ namespace BattlePix.Game
                 if (t % 10 == 0 && t != lastCmdTick)
                 {
                     lastCmdTick = t;
-                    _sim.EnqueueFromUi(CommandType.DebugSetOwner, 0, rng.NextInt(_sim.World.PixelCount), rng.NextInt(9));
+                    // Пока у человека нет игровых команд, бенч отдаёт Noop: реплей всё равно сверяет игру и headless.
+                    _sim.EnqueueFromUi(CommandType.Noop, HumanNation, rng.NextInt(_sim.World.PixelCount), 0);
                 }
                 yield return null;
             }
@@ -118,13 +121,17 @@ namespace BattlePix.Game
         void StartNewMatch(ulong seed)
         {
             _sim?.Dispose();
-            _sim = new Simulation(_config, seed);
+            _sim = new Simulation(_config, _rules, seed, 0, HumanNation);
             _clock = new TickClock(_config.TicksPerSecond, _config.MaxTicksPerFrame);
             SetSpeedButtons(1);
             _msPerTickAvg = 0;
             HidePixelInfo();
+            mapView.UploadTerrain(_sim.World);
             mapView.UploadIfDirty(_sim.World);
         }
+
+        /// <summary>Человек — нация 1.</summary>
+        const byte HumanNation = 1;
 
         void Update()
         {
@@ -251,8 +258,11 @@ namespace BattlePix.Game
             string text;
             if (mapView.WorldToPixel(worldPos, out int x, out int y))
             {
-                int owner = _sim.World.Owner[_sim.World.Index(x, y)];
-                text = $"({x}, {y})  владелец: {(owner == 0 ? "ничья" : owner.ToString())}";
+                int i = _sim.World.Index(x, y);
+                int owner = _sim.World.Owner[i];
+                text = !_sim.World.IsLand(i)
+                    ? $"({x}, {y})  вода"
+                    : $"({x}, {y})  владелец: {(owner == 0 ? "ничья" : owner.ToString())}";
             }
             else
             {

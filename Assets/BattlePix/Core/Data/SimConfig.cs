@@ -16,7 +16,7 @@ namespace BattlePix.Core
         [JsonProperty("commandHorizonTicks")] public int CommandHorizonTicks = 100;
         [JsonProperty("debugPaint")] public DebugPaintConfig DebugPaint = new DebugPaintConfig();
 
-        /// <summary>Число наций в мире. На этом этапе его задаёт отладочная система.</summary>
+        /// <summary>Число наций в мире Фундамента (без правил). В партии с правилами его задаёт nations.json.</summary>
         [JsonIgnore] public int NationCount => DebugPaint.Nations;
 
         public static SimConfig FromJson(string json)

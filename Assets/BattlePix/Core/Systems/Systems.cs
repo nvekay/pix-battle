@@ -2,16 +2,25 @@ using System.Collections.Generic;
 
 namespace BattlePix.Core
 {
-    /// <summary>Контекст тика для систем: конфиг и команды, применённые в этот тик.</summary>
+    /// <summary>Контекст тика для систем: конфиг, правила и команды, применённые в этот тик.</summary>
     public sealed class CommandContext
     {
         public SimConfig Config { get; }
+        /// <summary>null — мир Фундамента.</summary>
+        public Rules Rules { get; }
+        public byte HumanNation { get; }
         internal readonly List<Command> AppliedThisTick = new List<Command>();
         public IReadOnlyList<Command> Applied => AppliedThisTick;
 
-        public CommandContext(SimConfig config)
+        public CommandContext(SimConfig config) : this(config, null, 0)
+        {
+        }
+
+        public CommandContext(SimConfig config, Rules rules, byte humanNation)
         {
             Config = config;
+            Rules = rules;
+            HumanNation = humanNation;
         }
     }
 
@@ -22,7 +31,6 @@ namespace BattlePix.Core
 
     /// <summary>
     /// Фиксированный порядок систем. Порядок задаётся здесь списком, а не порядком регистрации в рантайме.
-    /// Прототип дописывает сюда фронт, экономику, ИИ.
     /// </summary>
     public sealed class SystemPipeline
     {
@@ -43,6 +51,13 @@ namespace BattlePix.Core
             return new SystemPipeline(list.ToArray());
         }
 
+        /// <summary>Пайплайн партии с правилами. Порядок — спека 5.2.</summary>
+        public static SystemPipeline CreateWithRules(SimConfig cfg, Rules rules)
+        {
+            var list = new List<ISimSystem>();
+            return new SystemPipeline(list.ToArray());
+        }
+
         public void Tick(World world, CommandContext ctx)
         {
             for (int i = 0; i < _systems.Length; i++) _systems[i].Tick(world, ctx);
@@ -51,7 +66,7 @@ namespace BattlePix.Core
 
     /// <summary>
     /// Отладочная система этапа 0: красит случайные пиксели случайным владельцем.
-    /// Не механика. Удаляется в прототипе.
+    /// Не механика. Живёт только в мире без правил: на ней держатся тесты Фундамента.
     /// </summary>
     public sealed class DebugPaintSystem : ISimSystem
     {

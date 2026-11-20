@@ -6,19 +6,67 @@ namespace BattlePix.Core
     public enum EndReason : byte
     {
         None = 0,
+        /// <summary>Страховочный лимит раннера. В партии с правилами это баг правил.</summary>
         TickLimit = 1,
-        // Victory, Defeat добавит прототип. Значения только дописываются.
+        /// <summary>Кто-то взял порог суши или остался один.</summary>
+        Conquest = 2,
+        /// <summary>Таймер правил.</summary>
+        Timeout = 3,
+        /// <summary>Пала столица человека.</summary>
+        HumanDefeated = 4,
+        // Значения только дописываются.
+    }
+
+    /// <summary>Рельеф. Значения только дописываются.</summary>
+    public enum Terrain : byte
+    {
+        Water = 0,
+        Land = 1,
     }
 
     public struct NationState
     {
         public byte Id;
+        /// <summary>1 — жива; 0 — пала столица.</summary>
+        public byte Alive;
+        /// <summary>Индекс пикселя столицы; −1 у мёртвой.</summary>
+        public int Capital;
+        /// <summary>Сколько пикселей у нации, ведётся инкрементально.</summary>
+        public int Pixels;
+        /// <summary>Золото в сотых (100 = 1 золото), не меньше 0.</summary>
+        public int Gold;
+        public int Battalions;
+        public byte FortsAlive;
+        /// <summary>−1, пока жива.</summary>
+        public int DiedAtTick;
+        public int Recruits;
+        public int FortsBuilt;
+        public int Strikes;
+    }
+
+    public struct Fort
+    {
+        public int Pixel;
+        public byte Owner;
         public byte Alive;
     }
 
+    /// <summary>Как прошла генерация карты. В хеш не входит: это производное от сида и правил.</summary>
+    public struct MapGenStats
+    {
+        public int MapAttempts;
+        public int CapitalAttempts;
+        public bool MapRetryFail;
+        public bool UnfairStart;
+        /// <summary>Доля суши от карты после удаления островов, bp.</summary>
+        public int LandShare_bp;
+        /// <summary>max/min размеров стартовых ячеек, bp.</summary>
+        public int Fairness_bp;
+    }
+
     /// <summary>
-    /// Состояние мира. Снаружи Owner и Terrain доступны только на чтение,
-    /// пишут в них системы ядра и применение команд.
+    /// Состояние мира. Снаружи всё доступно только на чтение,
+    /// пишут системы ядра и применение команд.
     /// </summary>
     public sealed class World : IDisposable
     {
@@ -30,10 +78,32 @@ namespace BattlePix.Core
         NativeArray<byte> _terrain;
         NativeArray<NationState> _nations;
 
+        // Массивы правил. В мире Фундамента (без правил) у них нулевая длина.
+        NativeArray<Fort> _forts;
+        NativeArray<ushort> _fortCover;
+        NativeArray<int> _strikeUntil;
+        NativeArray<int> _frontLen;
+        NativeArray<short> _flipHistory;
+        NativeList<int> _frontier;
+        NativeArray<byte> _inFrontier;
+
         public int Tick { get; internal set; }
         public RngStreams Rng { get; }
         public bool IsOver { get; internal set; }
         public EndReason EndReason { get; internal set; }
+
+        /// <summary>Правила партии. null — мир Фундамента.</summary>
+        public Rules Rules { get; }
+        public bool HasRules => Rules != null;
+        public int MaxFortsPerNation { get; }
+        /// <summary>Число пикселей суши после генерации.</summary>
+        public int TotalLand { get; internal set; }
+        /// <summary>Победитель, 0 — нет.</summary>
+        public byte Winner { get; internal set; }
+        public MapGenStats MapGen { get; internal set; }
+
+        /// <summary>Длина кольца FlipHistory в секундах.</summary>
+        public const int FlipSeconds = 10;
 
         /// <summary>Диапазон строк, изменённых с последнего чтения рендером. −1, если изменений нет.</summary>
         public int DirtyRowMin { get; private set; } = -1;
@@ -41,32 +111,115 @@ namespace BattlePix.Core
 
         public bool IsDisposed { get; private set; }
 
-        public World(int width, int height, int nationCount, ulong seed)
+        /// <summary>Мир Фундамента: без правил.</summary>
+        public World(int width, int height, int nationCount, ulong seed) : this(width, height, nationCount, seed, null)
+        {
+        }
+
+        /// <summary>Мир с правилами (rules != null): массивы фронта, крепостей и ударов.</summary>
+        public World(int width, int height, int nationCount, ulong seed, Rules rules)
         {
             if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
             if (nationCount < 0 || nationCount > 255) throw new ArgumentOutOfRangeException(nameof(nationCount));
+            if (rules != null && (nationCount != rules.NationCount || nationCount > Rules.MaxNations))
+                throw new ArgumentOutOfRangeException(nameof(nationCount));
             Width = width;
             Height = height;
-            _owner = new NativeArray<byte>(width * height, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            _terrain = new NativeArray<byte>(width * height, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            Rules = rules;
+            int n = width * height;
+            _owner = new NativeArray<byte>(n, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _terrain = new NativeArray<byte>(n, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _nations = new NativeArray<NationState>(nationCount, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             for (int i = 0; i < nationCount; i++)
-                _nations[i] = new NationState { Id = (byte)(i + 1), Alive = 1 };
+                _nations[i] = new NationState { Id = (byte)(i + 1), Alive = 1, Capital = -1, DiedAtTick = -1 };
+
+            MaxFortsPerNation = rules != null ? rules.Forts.MaxFortsPerNation : 0;
+            int nn = rules != null ? nationCount : 0;
+            int pixels = rules != null ? n : 0;
+            _forts = new NativeArray<Fort>(nn * MaxFortsPerNation, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _fortCover = new NativeArray<ushort>(pixels, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _strikeUntil = new NativeArray<int>(nn * nn, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _frontLen = new NativeArray<int>(rules != null ? (nn + 1) * (nn + 1) : 0, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _flipHistory = new NativeArray<short>(FlipSeconds * nn * nn, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _frontier = new NativeList<int>(rules != null ? 16384 : 0, Allocator.Persistent);
+            _inFrontier = new NativeArray<byte>(pixels, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+
             Rng = new RngStreams(seed);
         }
 
         public NativeArray<byte>.ReadOnly Owner => _owner.AsReadOnly();
         public NativeArray<byte>.ReadOnly Terrain => _terrain.AsReadOnly();
         public NativeArray<NationState>.ReadOnly Nations => _nations.AsReadOnly();
+        public NativeArray<Fort>.ReadOnly Forts => _forts.AsReadOnly();
+        public NativeArray<ushort>.ReadOnly FortCover => _fortCover.AsReadOnly();
+        public NativeArray<int>.ReadOnly StrikeUntil => _strikeUntil.AsReadOnly();
+        public NativeArray<int>.ReadOnly FrontLen => _frontLen.AsReadOnly();
+        public NativeArray<short>.ReadOnly FlipHistory => _flipHistory.AsReadOnly();
+        public NativeArray<int>.ReadOnly Frontier => _frontier.AsArray().AsReadOnly();
+        public NativeArray<byte>.ReadOnly InFrontier => _inFrontier.AsReadOnly();
         public int NationCount => _nations.Length;
 
         // Доступ на запись — только внутри ядра.
         internal NativeArray<byte> OwnerRW => _owner;
         internal NativeArray<byte> TerrainRW => _terrain;
         internal NativeArray<NationState> NationsRW => _nations;
+        internal NativeArray<Fort> FortsRW => _forts;
+        internal NativeArray<ushort> FortCoverRW => _fortCover;
+        internal NativeArray<int> StrikeUntilRW => _strikeUntil;
+        internal NativeArray<int> FrontLenRW => _frontLen;
+        internal NativeArray<short> FlipHistoryRW => _flipHistory;
+        internal NativeList<int> FrontierRW => _frontier;
+        internal NativeArray<byte> InFrontierRW => _inFrontier;
 
         public int Index(int x, int y) => y * Width + x;
         public bool InMap(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
+
+        public bool IsLand(int index) => _terrain[index] == (byte)Core.Terrain.Land;
+
+        public NationState Nation(byte id) => _nations[id - 1];
+
+        // ---------- фронт: открытые формулы, считаются из текущего состояния ----------
+
+        /// <summary>Число рёбер между пикселями a и d по 4-соседству. a или d = 0 — ничья земля.</summary>
+        public int FrontLength(int a, int d) => _frontLen[a * (NationCount + 1) + d];
+
+        /// <summary>Сумма FrontLen[a, x] по живым нациям x ≠ a: граница с ничьей землёй армию не ест.</summary>
+        public int WarLen(int a)
+        {
+            int sum = 0;
+            for (int x = 1; x <= NationCount; x++)
+                if (x != a && _nations[x - 1].Alive != 0) sum += FrontLength(a, x);
+            return sum;
+        }
+
+        /// <summary>Армия a на фронте с d в милли-батальонах (формула 5.4). 0, если фронта или войны нет.</summary>
+        public int ArmyOnFront(int a, int d)
+        {
+            if (a < 1 || a > NationCount || d < 1 || d > NationCount) return 0;
+            int len = FrontLength(a, d);
+            int war = WarLen(a);
+            if (len <= 0 || war <= 0) return 0;
+            return FrontMath.ArmyOnFront(_nations[a - 1].Battalions, len, war);
+        }
+
+        /// <summary>Плотность a на фронте с d (формула 5.4, с гарнизоном). 0, если общего фронта нет.</summary>
+        public int Pow(int a, int d)
+        {
+            if (!HasRules || a < 1 || a > NationCount || d < 1 || d > NationCount) return 0;
+            int len = FrontLength(a, d);
+            if (len <= 0) return 0;
+            return FrontMath.Pow(_nations[a - 1].Battalions, len, WarLen(a), Rules.Front.GarrisonPerEdge);
+        }
+
+        /// <summary>Сколько пикселей d перешло к a минус обратно за последние 10 с. Положительное — a наступает.</summary>
+        public int NetFlips10s(int a, int d)
+        {
+            if (a < 1 || a > NationCount || d < 1 || d > NationCount) return 0;
+            int n = NationCount, nn = n * n, sum = 0;
+            for (int s = 0; s < FlipSeconds; s++)
+                sum += _flipHistory[s * nn + (a - 1) * n + (d - 1)] - _flipHistory[s * nn + (d - 1) * n + (a - 1)];
+            return sum;
+        }
 
         internal void SetOwner(int index, byte owner)
         {
@@ -101,6 +254,44 @@ namespace BattlePix.Core
             if (_owner.IsCreated) _owner.Dispose();
             if (_terrain.IsCreated) _terrain.Dispose();
             if (_nations.IsCreated) _nations.Dispose();
+            if (_forts.IsCreated) _forts.Dispose();
+            if (_fortCover.IsCreated) _fortCover.Dispose();
+            if (_strikeUntil.IsCreated) _strikeUntil.Dispose();
+            if (_frontLen.IsCreated) _frontLen.Dispose();
+            if (_flipHistory.IsCreated) _flipHistory.Dispose();
+            if (_frontier.IsCreated) _frontier.Dispose();
+            if (_inFrontier.IsCreated) _inFrontier.Dispose();
         }
+    }
+
+    /// <summary>Формулы давления 5.4. Целые, деление к нулю. Используются и фронтом, и ИИ, и UI.</summary>
+    public static class FrontMath
+    {
+        /// <summary>armyOnFront = Battalions × 1000 × FrontLen / warLen, милли-батальоны.</summary>
+        public static int ArmyOnFront(int battalions, int frontLen, int warLen)
+        {
+            if (frontLen <= 0 || warLen <= 0) return 0;
+            return (int)((long)battalions * 1000L * frontLen / warLen);
+        }
+
+        /// <summary>pow = armyOnFront / FrontLen + garrisonPerEdge.</summary>
+        public static int Pow(int battalions, int frontLen, int warLen, int garrisonPerEdge)
+        {
+            if (frontLen <= 0) return garrisonPerEdge;
+            return ArmyOnFront(battalions, frontLen, warLen) / frontLen + garrisonPerEdge;
+        }
+
+        /// <summary>Шанс захвата в bp: clamp(warChance × (ratio − stall) / 10000, 0, max).</summary>
+        public static int Chance(int att, int def, int warChance_bp, int stallRatio_bp, int maxChance_bp, out int ratio_bp)
+        {
+            ratio_bp = def > 0 ? (int)((long)att * 10000L / def) : int.MaxValue;
+            long c = (long)warChance_bp * (ratio_bp - (long)stallRatio_bp) / 10000L;
+            if (c < 0) c = 0;
+            if (c > maxChance_bp) c = maxChance_bp;
+            return (int)c;
+        }
+
+        /// <summary>x × m_bp / 10000.</summary>
+        public static int MulBp(int x, int m_bp) => (int)((long)x * m_bp / 10000L);
     }
 }

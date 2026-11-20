@@ -5,10 +5,24 @@ using Newtonsoft.Json.Converters;
 
 namespace BattlePix.Core
 {
-    /// <summary>Файл реплея = баг-репорт: сид + лог команд + контрольные хеши.</summary>
+    /// <summary>Реплей формата, который нельзя проиграть (формат 1 этапа 0 не знает правил).</summary>
+    public sealed class UnsupportedReplayFormatException : FormatException
+    {
+        public int Format { get; }
+
+        public UnsupportedReplayFormatException(int format, string message) : base(message)
+        {
+            Format = format;
+        }
+    }
+
+    /// <summary>
+    /// Файл реплея = баг-репорт: сид + лог команд человека + контрольные хеши.
+    /// Команды ИИ в файл не пишутся: при проигрывании ИИ отдаёт их сам.
+    /// </summary>
     public sealed class ReplayFile
     {
-        public const int SupportedFormat = 1;
+        public const int SupportedFormat = 2;
 
         [JsonProperty("format")] public int Format = SupportedFormat;
         [JsonProperty("build")] public string Build = "";
@@ -17,6 +31,8 @@ namespace BattlePix.Core
         [JsonProperty("ticks")] public int Ticks;
         /// <summary>Лимит тиков, с которым шла партия. 0 — без лимита (партия из игры).</summary>
         [JsonProperty("tickLimit")] public int TickLimit;
+        /// <summary>Нация под человеком. 0 — партия без человека.</summary>
+        [JsonProperty("human")] public byte Human;
         [JsonProperty("commands")] public List<ReplayCommand> Commands = new List<ReplayCommand>();
         [JsonProperty("checkpoints")] public List<ReplayCheckpoint> Checkpoints = new List<ReplayCheckpoint>();
 
@@ -32,8 +48,12 @@ namespace BattlePix.Core
         {
             var r = JsonConvert.DeserializeObject<ReplayFile>(json, Settings)
                     ?? throw new FormatException("replay: empty");
+            if (r.Format == 1)
+                throw new UnsupportedReplayFormatException(1,
+                    "replay: format 1 is from stage 0 (Foundation): it has no rules and cannot be replayed, expected format 2");
             if (r.Format != SupportedFormat)
-                throw new FormatException($"replay: format {r.Format} is not supported, expected {SupportedFormat}");
+                throw new UnsupportedReplayFormatException(r.Format,
+                    $"replay: format {r.Format} is not supported, expected {SupportedFormat}");
             return r;
         }
 
@@ -50,6 +70,7 @@ namespace BattlePix.Core
                 DataHash = Fnv1a64.ToHex(dataHash),
                 Ticks = sim.World.Tick,
                 TickLimit = sim.TickLimit,
+                Human = sim.HumanNation,
             };
             foreach (var c in sim.CommandLog)
             {
@@ -107,7 +128,20 @@ namespace BattlePix.Core
     /// <summary>Проигрывает реплей и сверяет все контрольные точки.</summary>
     public static class ReplayPlayer
     {
-        public static ReplayResult Verify(ReplayFile replay, SimConfig config)
+        /// <summary>Партия с правилами: Simulation строится по текущим данным и human из файла.</summary>
+        public static ReplayResult Verify(ReplayFile replay, SimConfig config, Rules rules)
+        {
+            if (rules == null) throw new ArgumentNullException(nameof(rules));
+            if (replay.Human > rules.NationCount)
+                return Fail(new ReplayResult { FirstDivergentTick = -1 }, $"human nation {replay.Human} is out of range 0..{rules.NationCount}");
+            return Verify(replay, () => new Simulation(config, rules, replay.Seed, replay.TickLimit, replay.Human));
+        }
+
+        /// <summary>Мир Фундамента (без правил): для тестов этапа 0.</summary>
+        public static ReplayResult Verify(ReplayFile replay, SimConfig config) =>
+            Verify(replay, () => new Simulation(config, replay.Seed, replay.TickLimit));
+
+        static ReplayResult Verify(ReplayFile replay, Func<Simulation> create)
         {
             var result = new ReplayResult { Ok = true, FirstDivergentTick = -1 };
 
@@ -124,7 +158,7 @@ namespace BattlePix.Core
             foreach (var rc in replay.Commands) commands.Add(rc.ToCommand());
             commands.Sort((a, b) => a.Tick != b.Tick ? a.Tick.CompareTo(b.Tick) : a.Seq.CompareTo(b.Seq));
 
-            using (var sim = new Simulation(config, replay.Seed, replay.TickLimit))
+            using (var sim = create())
             {
                 int next = 0;
                 while (sim.World.Tick < replay.Ticks && !sim.World.IsOver)

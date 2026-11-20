@@ -6,5 +6,5 @@
   "maxTicksPerFrame": 8,
   "checkpointInterval": 600,
   "commandHorizonTicks": 100,
-  "debugPaint": { "enabled": true, "pixelsPerTick": 64, "nations": 8 }
+  "debugPaint": { "enabled": false, "pixelsPerTick": 64, "nations": 8 }
 }

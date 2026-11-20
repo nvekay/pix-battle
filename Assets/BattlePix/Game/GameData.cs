@@ -14,17 +14,23 @@ namespace BattlePix.Game
     public sealed class GameData
     {
         public const string ConfigFile = "sim_config.json";
-        public const string NationsFile = "nations_debug.json";
+        public const string NationsFile = "nations.json";
+        public const string RulesFile = "rules.json";
+        public const string AiFile = "ai.json";
 
         /// <summary>
         /// На Android StreamingAssets нельзя перечислить, поэтому там читаем этот список.
         /// Добавил файл в Data/ — допиши его сюда.
         /// </summary>
-        static readonly string[] KnownFiles = { NationsFile, ConfigFile };
+        static readonly string[] KnownFiles = { AiFile, NationsFile, RulesFile, ConfigFile };
 
         public readonly List<KeyValuePair<string, byte[]>> Files = new List<KeyValuePair<string, byte[]>>();
 
         public ulong DataHash => Fnv1a64.DataHash(Files);
+
+        public SimConfig Config() => SimConfig.FromJson(Text(ConfigFile));
+
+        public Rules Rules() => BattlePix.Core.Rules.FromJson(Text(NationsFile), Text(RulesFile), Text(AiFile));
 
         public string Text(string name)
         {
@@ -89,7 +95,7 @@ namespace BattlePix.Game
         }
     }
 
-    /// <summary>Отладочные нации: нужны только палитре рендера, ядро их не читает.</summary>
+    /// <summary>Имя и цвет нации для игры. Ядро из nations.json читает только id.</summary>
     public sealed class NationInfo
     {
         [JsonProperty("id")] public int Id;
