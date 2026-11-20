@@ -222,10 +222,10 @@ namespace BattlePix.Core
         [JsonProperty("warChance_bp")] public int WarChance_bp = 180;
         [JsonProperty("stallRatio_bp")] public int StallRatio_bp = 8000;
         [JsonProperty("maxChance_bp")] public int MaxChance_bp = 800;
-        [JsonProperty("garrisonPerEdge")] public int GarrisonPerEdge = 10;
-        [JsonProperty("capitalRadius")] public int CapitalRadius = 20;
-        [JsonProperty("capitalMult_bp")] public int CapitalMult_bp = 20000;
-        [JsonProperty("defenseMultCap_bp")] public int DefenseMultCap_bp = 40000;
+        [JsonProperty("garrisonPerEdge")] public int GarrisonPerEdge = 40;
+        [JsonProperty("capitalRadius")] public int CapitalRadius = 28;
+        [JsonProperty("capitalMult_bp")] public int CapitalMult_bp = 30000;
+        [JsonProperty("defenseMultCap_bp")] public int DefenseMultCap_bp = 60000;
         /// <summary>
         /// Множитель шанса войны по числу соседей атакующего у пикселя (1, 2, 3, 4), bp. Даёт границе «поверхностное
         /// натяжение»: анклав в окружении съедается, выступ в один пиксель почти не растёт. [10000 ×4] — как без множителя.

@@ -291,12 +291,12 @@ namespace BattlePix.Core.Tests
         const int Ticks = 9000;
 
         /// <summary>Человек (нация 1) играет простыми правилами: копит, набирает, ставит крепости, бьёт соседа.</summary>
-        static ReplayFile Play(out List<Command> accepted)
+        static ReplayFile Play(ulong seed, out List<Command> accepted)
         {
             var config = TestData.Config();
             var rules = TestData.Rules();
             accepted = new List<Command>();
-            using (var sim = new Simulation(config, rules, 3, Ticks, 1))
+            using (var sim = new Simulation(config, rules, seed, Ticks, 1))
             {
                 var w = sim.World;
                 int forts = 0;
@@ -334,13 +334,17 @@ namespace BattlePix.Core.Tests
         [Test]
         public void HumanReplay_AllTypes_PassesBitForBit_AndTamperIsCaught()
         {
-            var replay = ReplayFile.FromJson(Play(out var accepted).ToJson());
+            // Первый сид, где человек дожил до ≥ 20 принятых команд всех трёх типов (зависит от баланса, не от кода).
+            ReplayFile replay = null;
+            List<Command> accepted = null;
             int recruit = 0, fort = 0, strike = 0;
-            foreach (var c in accepted)
+            for (ulong seed = 1; seed <= 30; seed++)
             {
-                if (c.Type == CommandType.Recruit) recruit++;
-                if (c.Type == CommandType.BuildFort) fort++;
-                if (c.Type == CommandType.Strike) strike++;
+                replay = ReplayFile.FromJson(Play(seed, out accepted).ToJson());
+                recruit = accepted.FindAll(c => c.Type == CommandType.Recruit).Count;
+                fort = accepted.FindAll(c => c.Type == CommandType.BuildFort).Count;
+                strike = accepted.FindAll(c => c.Type == CommandType.Strike).Count;
+                if (accepted.Count >= 20 && recruit > 0 && fort > 0 && strike > 0) break;
             }
             TestContext.WriteLine($"ticks {replay.Ticks}, accepted: {accepted.Count} (recruit {recruit}, fort {fort}, strike {strike}), logged {replay.Commands.Count}");
             Assert.GreaterOrEqual(accepted.Count, 20);
