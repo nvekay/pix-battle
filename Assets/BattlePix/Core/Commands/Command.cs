@@ -8,6 +8,12 @@ namespace BattlePix.Core
     {
         Noop = 0,
         DebugSetOwner = 1,
+        /// <summary>Набрать батальон. A, B не используются.</summary>
+        Recruit = 2,
+        /// <summary>Поставить крепость. A = индекс пикселя.</summary>
+        BuildFort = 3,
+        /// <summary>Удар по соседу. A = id нации-цели.</summary>
+        Strike = 4,
     }
 
     public struct Command
@@ -19,7 +25,7 @@ namespace BattlePix.Core
         /// <summary>Порядковый номер внутри тика. Присваивает очередь.</summary>
         public int Seq;
         public CommandType Type;
-        /// <summary>Для DebugSetOwner: A = индекс пикселя, B = новый владелец.</summary>
+        /// <summary>DebugSetOwner: A = пиксель, B = владелец. BuildFort: A = пиксель. Strike: A = цель.</summary>
         public int A, B;
 
         public override string ToString() => $"[t={Tick} n={Nation} s={Seq} {Type} a={A} b={B}]";

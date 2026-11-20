@@ -163,6 +163,10 @@ namespace BattlePix.Core
                     if (c.A < 0 || c.A >= World.PixelCount) return RejectReason.PixelOutOfMap;
                     if (c.B < 0 || c.B > World.NationCount) return RejectReason.OwnerOutOfRange;
                     return RejectReason.None;
+                case CommandType.Recruit:
+                case CommandType.BuildFort:
+                case CommandType.Strike:
+                    return GameCommands.Validate(World, c);
                 default:
                     return RejectReason.UnknownType;
             }
@@ -176,6 +180,11 @@ namespace BattlePix.Core
                     break;
                 case CommandType.DebugSetOwner:
                     World.SetOwner(c.A, (byte)c.B);
+                    break;
+                case CommandType.Recruit:
+                case CommandType.BuildFort:
+                case CommandType.Strike:
+                    GameCommands.Apply(World, c);
                     break;
             }
         }
