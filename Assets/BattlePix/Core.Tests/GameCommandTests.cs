@@ -15,8 +15,8 @@ namespace BattlePix.Core.Tests
         /// </summary>
         static void Rejects(RejectReason expected, Func<World, Command> make, Action<World> setup = null, int warmup = 0, ulong seed = 3)
         {
-            using (var withCmd = TestData.Match(seed))
-            using (var without = TestData.Match(seed))
+            using (var withCmd = TestData.IdleMatch(seed))
+            using (var without = TestData.IdleMatch(seed))
             {
                 TestUtil.Run(withCmd, warmup);
                 TestUtil.Run(without, warmup);
@@ -126,7 +126,7 @@ namespace BattlePix.Core.Tests
         [Test]
         public void Recruit_SpendsGold_AddsBattalion()
         {
-            using (var sim = TestData.Match(4))
+            using (var sim = TestData.IdleMatch(4))
             {
                 var before = sim.World.Nation(1);
                 sim.EnqueueFromUi(CommandType.Recruit, 1, 0, 0);
@@ -143,7 +143,7 @@ namespace BattlePix.Core.Tests
         [Test]
         public void TwoPurchases_SecondRejected_WhenGoldRunsOut()
         {
-            using (var sim = TestData.Match(4))
+            using (var sim = TestData.IdleMatch(4))
             {
                 // 300 золота: батальон (200) проходит, крепость (400) уже нет.
                 sim.EnqueueFromUi(CommandType.Recruit, 1, 0, 0);
@@ -159,7 +159,7 @@ namespace BattlePix.Core.Tests
         [Test]
         public void BuildFort_StampsCover_PriceGrowsByFortsAlive()
         {
-            using (var sim = TestData.Match(4))
+            using (var sim = TestData.IdleMatch(4))
             {
                 var w = sim.World;
                 var nat = w.NationsRW;
@@ -186,7 +186,7 @@ namespace BattlePix.Core.Tests
         [Test]
         public void Strike_BurnsBattalion_SetsUntil_ExpiresInStrikeSystem()
         {
-            using (var sim = TestData.Match(3))
+            using (var sim = TestData.IdleMatch(3))
             {
                 TestUtil.Run(sim, 4000);
                 var w = sim.World;
@@ -296,26 +296,26 @@ namespace BattlePix.Core.Tests
             var config = TestData.Config();
             var rules = TestData.Rules();
             accepted = new List<Command>();
-            using (var sim = new Simulation(config, rules, 11, Ticks, 1))
+            using (var sim = new Simulation(config, rules, 3, Ticks, 1))
             {
                 var w = sim.World;
                 int forts = 0;
                 while (!w.IsOver)
                 {
                     int t = w.Tick;
-                    if (t % 150 == 0)
+                    if (t % 50 == 0)
                     {
                         var me = w.Nation(1);
-                        if (t % 600 == 0 && forts < 4)
+                        if (t % 300 == 0 && forts < 4)
                         {
                             // Крепость на своей земле: столица и точки вокруг неё через 20 px.
                             int cap = me.Capital, x = cap % w.Width + (forts % 2 == 0 ? 1 : -1) * 20 * (forts / 2), y = cap / w.Width;
                             sim.EnqueueFromUi(CommandType.BuildFort, 1, w.Index(Math.Max(0, Math.Min(w.Width - 1, x)), y), 0);
                             forts++;
                         }
-                        else if (me.Gold >= 60000) sim.EnqueueFromUi(CommandType.Recruit, 1, 0, 0); // копим на крепость
+                        else if (me.Gold >= 50000) sim.EnqueueFromUi(CommandType.Recruit, 1, 0, 0); // копим на крепость
                         for (int d = 2; d <= 8; d++)
-                            if (w.FrontLength(1, d) > 0 && t % 450 == 0)
+                            if (w.FrontLength(1, d) > 0 && t % 200 == 0)
                             {
                                 sim.EnqueueFromUi(CommandType.Strike, 1, d, 0);
                                 break;
@@ -342,7 +342,7 @@ namespace BattlePix.Core.Tests
                 if (c.Type == CommandType.BuildFort) fort++;
                 if (c.Type == CommandType.Strike) strike++;
             }
-            TestContext.WriteLine($"accepted: {accepted.Count} (recruit {recruit}, fort {fort}, strike {strike}), logged {replay.Commands.Count}");
+            TestContext.WriteLine($"ticks {replay.Ticks}, accepted: {accepted.Count} (recruit {recruit}, fort {fort}, strike {strike}), logged {replay.Commands.Count}");
             Assert.GreaterOrEqual(accepted.Count, 20);
             Assert.Greater(recruit, 0);
             Assert.Greater(fort, 0);
@@ -353,17 +353,17 @@ namespace BattlePix.Core.Tests
             var rules = TestData.Rules();
             var ok = ReplayPlayer.Verify(replay, config, rules);
             Assert.IsTrue(ok.Ok, ok.Error);
-            Assert.AreEqual(Ticks / 600, ok.CheckpointsCompared);
+            Assert.AreEqual(replay.Checkpoints.Count, ok.CheckpointsCompared);
 
-            // Подмена: принятый набор после 3000-го тика превращается в Noop.
-            var victim = accepted.Find(c => c.Type == CommandType.Recruit && c.Tick > 3000);
+            // Подмена: принятый набор после 600-го тика превращается в Noop.
+            var victim = accepted.Find(c => c.Type == CommandType.Recruit && c.Tick > 600);
             int idx = replay.Commands.FindIndex(rc => rc.Tick == victim.Tick && rc.Seq == victim.Seq);
             Assert.GreaterOrEqual(idx, 0);
             replay.Commands[idx].Type = CommandType.Noop;
             var bad = ReplayPlayer.Verify(replay, config, rules);
             Assert.IsFalse(bad.Ok);
             Assert.IsNull(bad.Error);
-            int expected = (victim.Tick / 600 + 1) * 600;
+            int expected = Math.Min((victim.Tick / 600 + 1) * 600, replay.Ticks);
             Assert.AreEqual(expected, bad.FirstDivergentTick);
         }
     }

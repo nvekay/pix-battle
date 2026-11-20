@@ -12,6 +12,15 @@ namespace BattlePix.Core
         public byte HumanNation { get; }
         internal readonly List<Command> AppliedThisTick = new List<Command>();
         public IReadOnlyList<Command> Applied => AppliedThisTick;
+        /// <summary>Очередь партии: через неё ИИ отдаёт команды. null в контекстах, собранных тестами вручную.</summary>
+        internal CommandQueue Queue;
+
+        /// <summary>Команда ядра на Tick + 1: та же валидация, но не в логе реплея.</summary>
+        internal void IssueInternal(World world, Command cmd)
+        {
+            if (Queue == null) throw new System.InvalidOperationException("no command queue in this context");
+            Queue.EnqueueInternal(world.Tick, ref cmd);
+        }
 
         public CommandContext(SimConfig config) : this(config, null, 0)
         {
@@ -60,6 +69,8 @@ namespace BattlePix.Core
                 new FrontSystem(),
                 new EconomySystem(),
                 new StrikeSystem(),
+                new AiSystem(),
+                new EndSystem(),
             };
             return new SystemPipeline(list.ToArray());
         }

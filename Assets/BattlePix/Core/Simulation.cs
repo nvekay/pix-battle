@@ -36,6 +36,8 @@ namespace BattlePix.Core
         /// <summary>Лог ядра: команды, отклонённые валидацией при применении.</summary>
         public IReadOnlyList<RejectedCommand> Rejected => _rejected;
         public IReadOnlyList<Command> CommandLog => Queue.Log;
+        /// <summary>Команды (человека и ИИ), применённые в последнем тике, по (Nation, Seq).</summary>
+        public IReadOnlyList<Command> AppliedLastTick => _ctx.Applied;
 
         /// <summary>true, если последний Step посчитал контрольную точку (раннер исключает такие тики из бюджета).</summary>
         public bool LastStepWroteCheckpoint { get; private set; }
@@ -73,7 +75,7 @@ namespace BattlePix.Core
             World.MarkAllDirty();
             Queue = new CommandQueue(config.CommandHorizonTicks);
             Pipeline = SystemPipeline.CreateWithRules(config, rules);
-            _ctx = new CommandContext(config, rules, humanNation);
+            _ctx = new CommandContext(config, rules, humanNation) { Queue = Queue };
         }
 
         public Simulation(SimConfig config, ulong seed, int tickLimit, SystemPipeline pipeline)
@@ -128,7 +130,7 @@ namespace BattlePix.Core
             World.Tick += 1;
 
             // 4. Конец партии по лимиту. Ставится до контрольной точки, чтобы последняя точка видела IsOver.
-            if (TickLimit > 0 && World.Tick >= TickLimit)
+            if (TickLimit > 0 && World.Tick >= TickLimit && !World.IsOver)
             {
                 World.IsOver = true;
                 World.EndReason = EndReason.TickLimit;
