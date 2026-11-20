@@ -226,6 +226,11 @@ namespace BattlePix.Core
         [JsonProperty("capitalRadius")] public int CapitalRadius = 20;
         [JsonProperty("capitalMult_bp")] public int CapitalMult_bp = 20000;
         [JsonProperty("defenseMultCap_bp")] public int DefenseMultCap_bp = 40000;
+        /// <summary>
+        /// Множитель шанса войны по числу соседей атакующего у пикселя (1, 2, 3, 4), bp. Даёт границе «поверхностное
+        /// натяжение»: анклав в окружении съедается, выступ в один пиксель почти не растёт. [10000 ×4] — как без множителя.
+        /// </summary>
+        [JsonProperty("surroundMult_bp")] public int[] SurroundMult_bp = { 5000, 10000, 20000, 40000 };
 
         internal void Validate()
         {
@@ -236,6 +241,8 @@ namespace BattlePix.Core
             Rules.Require(GarrisonPerEdge >= 1, "rules.front", "garrisonPerEdge must be >= 1 (no division by zero)");
             Rules.Require(CapitalRadius >= 0, "rules.front", "capitalRadius must be >= 0");
             Rules.Require(CapitalMult_bp >= 1 && DefenseMultCap_bp >= 1, "rules.front", "multipliers must be >= 1");
+            Rules.Require(SurroundMult_bp != null && SurroundMult_bp.Length == 4, "rules.front", "surroundMult_bp must have 4 values");
+            foreach (var m in SurroundMult_bp) Rules.Require(m >= 0, "rules.front", "surroundMult_bp must be >= 0");
         }
     }
 

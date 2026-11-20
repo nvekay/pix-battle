@@ -28,6 +28,21 @@ namespace BattlePix.Core
             return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
         }
 
+        /// <summary>
+        /// PCG-хеш RXS-M-XS 32 (pcg_hash у Jarzynski и Olano, 2020). Без состояния: случайность фронта
+        /// берётся из хеша (соль тика, пиксель, сосед), поэтому не зависит от порядка обработки и числа потоков.
+        /// </summary>
+        public static uint Hash(uint v)
+        {
+            uint state = unchecked(v * 747796405u + 2891336453u);
+            uint word = unchecked(((state >> (int)((state >> 28) + 4u)) ^ state) * 277803737u);
+            return (word >> 22) ^ word;
+        }
+
+        /// <summary>Бросок фронта для пикселя t и соседа k (0..3) в 0..9999.</summary>
+        public static int FrontRoll(uint salt, int t, int k) =>
+            (int)(Hash(salt ^ Hash(unchecked((uint)t * 4u + (uint)k))) % 10000u);
+
         /// <summary>Равномерное целое в [0, boundExclusive) без перекоса. bound должен быть больше 0.</summary>
         public int NextInt(int boundExclusive)
         {

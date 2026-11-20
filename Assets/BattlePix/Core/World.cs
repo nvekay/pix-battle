@@ -86,6 +86,8 @@ namespace BattlePix.Core
         NativeArray<short> _flipHistory;
         NativeList<int> _frontier;
         NativeArray<byte> _inFrontier;
+        NativeArray<byte> _edgeMask;
+        NativeArray<ushort> _capitalCover;
 
         public int Tick { get; internal set; }
         public RngStreams Rng { get; }
@@ -143,6 +145,9 @@ namespace BattlePix.Core
             _flipHistory = new NativeArray<short>(FlipSeconds * nn * nn, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _frontier = new NativeList<int>(rules != null ? 16384 : 0, Allocator.Persistent);
             _inFrontier = new NativeArray<byte>(pixels, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _capitalCover = new NativeArray<ushort>(pixels, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _edgeMask = new NativeArray<byte>(pixels, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            for (int i = 0; i < pixels; i++) _edgeMask[i] = Grid.EdgeMask(i % width, i / width, width, height);
 
             Rng = new RngStreams(seed);
         }
@@ -157,19 +162,25 @@ namespace BattlePix.Core
         public NativeArray<short>.ReadOnly FlipHistory => _flipHistory.AsReadOnly();
         public NativeArray<int>.ReadOnly Frontier => _frontier.AsArray().AsReadOnly();
         public NativeArray<byte>.ReadOnly InFrontier => _inFrontier.AsReadOnly();
+        /// <summary>Какие из 4 соседей есть на карте: бит k (0 — N, 1 — E, 2 — S, 3 — W). Не меняется.</summary>
+        public NativeArray<byte>.ReadOnly EdgeMask => _edgeMask.AsReadOnly();
+        /// <summary>Бит id − 1, если пиксель в круге capitalRadius от столицы живой нации. Производное от столиц.</summary>
+        public NativeArray<ushort>.ReadOnly CapitalCover => _capitalCover.AsReadOnly();
         public int NationCount => _nations.Length;
 
         // Доступ на запись — только внутри ядра.
-        internal NativeArray<byte> OwnerRW => _owner;
-        internal NativeArray<byte> TerrainRW => _terrain;
-        internal NativeArray<NationState> NationsRW => _nations;
-        internal NativeArray<Fort> FortsRW => _forts;
-        internal NativeArray<ushort> FortCoverRW => _fortCover;
-        internal NativeArray<int> StrikeUntilRW => _strikeUntil;
-        internal NativeArray<int> FrontLenRW => _frontLen;
-        internal NativeArray<short> FlipHistoryRW => _flipHistory;
-        internal NativeList<int> FrontierRW => _frontier;
-        internal NativeArray<byte> InFrontierRW => _inFrontier;
+        internal ref NativeArray<byte> OwnerRW => ref _owner;
+        internal ref NativeArray<byte> TerrainRW => ref _terrain;
+        internal ref NativeArray<NationState> NationsRW => ref _nations;
+        internal ref NativeArray<Fort> FortsRW => ref _forts;
+        internal ref NativeArray<ushort> FortCoverRW => ref _fortCover;
+        internal ref NativeArray<int> StrikeUntilRW => ref _strikeUntil;
+        internal ref NativeArray<int> FrontLenRW => ref _frontLen;
+        internal ref NativeArray<short> FlipHistoryRW => ref _flipHistory;
+        internal ref NativeList<int> FrontierRW => ref _frontier;
+        internal ref NativeArray<byte> InFrontierRW => ref _inFrontier;
+        internal ref NativeArray<byte> EdgeMaskRW => ref _edgeMask;
+        internal ref NativeArray<ushort> CapitalCoverRW => ref _capitalCover;
 
         public int Index(int x, int y) => y * Width + x;
         public bool InMap(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
@@ -261,6 +272,8 @@ namespace BattlePix.Core
             if (_flipHistory.IsCreated) _flipHistory.Dispose();
             if (_frontier.IsCreated) _frontier.Dispose();
             if (_inFrontier.IsCreated) _inFrontier.Dispose();
+            if (_edgeMask.IsCreated) _edgeMask.Dispose();
+            if (_capitalCover.IsCreated) _capitalCover.Dispose();
         }
     }
 
