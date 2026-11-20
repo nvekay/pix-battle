@@ -1,0 +1,22 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="DebugPanel.uss" />
+    <ui:VisualElement name="root" class="root">
+        <ui:VisualElement name="top-bar" class="bar top-bar">
+            <ui:Label name="status" class="status" text="..." />
+        </ui:VisualElement>
+        <ui:VisualElement name="map-area" class="map-area">
+            <ui:Label name="pixel-info" class="pixel-info hidden" text="" />
+        </ui:VisualElement>
+        <ui:VisualElement name="bottom-bar" class="bar bottom-bar">
+            <ui:Button name="btn-pause" class="btn" text="Пауза" />
+            <ui:Button name="btn-x1" class="btn" text="×1" />
+            <ui:Button name="btn-x2" class="btn" text="×2" />
+            <ui:Button name="btn-x4" class="btn" text="×4" />
+            <ui:Button name="btn-step" class="btn" text="Шаг" />
+            <ui:TextField name="seed" class="seed" label="Сид" value="42" />
+            <ui:Button name="btn-new" class="btn" text="Новая партия" />
+            <ui:Button name="btn-save" class="btn" text="Сохранить реплей" />
+        </ui:VisualElement>
+        <ui:Label name="toast" class="toast hidden" text="" />
+    </ui:VisualElement>
+</ui:UXML>
