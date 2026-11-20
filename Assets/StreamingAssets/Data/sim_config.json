@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "width": 512,
+  "height": 256,
+  "ticksPerSecond": 10,
+  "maxTicksPerFrame": 8,
+  "checkpointInterval": 600,
+  "commandHorizonTicks": 100,
+  "debugPaint": { "enabled": true, "pixelsPerTick": 64, "nations": 8 }
+}
