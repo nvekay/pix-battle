@@ -20,7 +20,7 @@ namespace BattlePix.Editor
         const string MaterialPath = Root + "/Materials/OwnerPalette.mat";
         const string PanelSettingsPath = Root + "/UI/PanelSettings.asset";
         const string ThemePath = Root + "/UI/BattlePixTheme.tss";
-        const string UxmlPath = Root + "/UI/DebugPanel.uxml";
+        const string UxmlPath = Root + "/UI/Game.uxml";
         const string ShaderName = "BattlePix/OwnerPalette";
 
         // Карта 512×256 + место под панели; Pixel Perfect масштабирует целым множителем.

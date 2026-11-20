@@ -1,0 +1,122 @@
+/* Только тап: никаких :hover-подсказок. Все цели нажатия ≥ 44×44 единиц PanelSettings. */
+.root {
+    flex-grow: 1;
+    flex-direction: column;
+}
+.bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 4px 8px;
+    background-color: rgba(10, 14, 18, 0.82);
+}
+.top-bar { min-height: 52px; }
+.bottom-bar { min-height: 60px; justify-content: center; }
+.map-area { flex-grow: 1; }
+.spacer { flex-grow: 1; }
+.hud {
+    color: rgb(235, 235, 235);
+    font-size: 18px;
+    margin: 0 10px;
+    -unity-text-align: middle-left;
+}
+.status {
+    color: rgb(200, 200, 200);
+    font-size: 14px;
+    -unity-text-align: middle-left;
+    margin-right: 8px;
+}
+.btn {
+    min-width: 44px;
+    min-height: 44px;
+    margin: 4px;
+    padding: 0 12px;
+    font-size: 16px;
+}
+.btn.active {
+    background-color: rgb(70, 120, 180);
+    color: rgb(255, 255, 255);
+}
+.btn.disabled-look {
+    color: rgb(140, 140, 140);
+    background-color: rgb(70, 72, 76);
+}
+.action {
+    min-width: 180px;
+    min-height: 52px;
+    font-size: 18px;
+}
+.btn-confirm {
+    background-color: rgb(70, 140, 90);
+    color: rgb(255, 255, 255);
+}
+.mode-bar { min-height: 52px; justify-content: center; }
+.mode-text {
+    color: rgb(240, 240, 240);
+    font-size: 17px;
+    margin-right: 12px;
+}
+.seed {
+    min-height: 44px;
+    min-width: 200px;
+    margin: 4px;
+    font-size: 16px;
+}
+.seed > .unity-base-text-field__input {
+    min-height: 44px;
+    min-width: 120px;
+}
+.seed > Label {
+    color: rgb(230, 230, 230);
+    min-width: 40px;
+    -unity-text-align: middle-left;
+}
+.panel {
+    position: absolute;
+    padding: 8px 12px;
+    min-height: 44px;
+    max-width: 520px;
+    background-color: rgba(10, 14, 18, 0.92);
+    color: rgb(240, 240, 240);
+    font-size: 16px;
+    border-radius: 4px;
+    white-space: normal;
+}
+.tip {
+    bottom: 8px;
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+    align-self: center;
+    -unity-text-align: middle-center;
+    background-color: rgba(120, 60, 40, 0.95);
+}
+.toast {
+    position: absolute;
+    top: 64px;
+    left: 30%;
+    right: 30%;
+    padding: 8px 12px;
+    background-color: rgba(10, 14, 18, 0.9);
+    color: rgb(240, 240, 240);
+    font-size: 17px;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+.end-screen {
+    position: absolute;
+    left: 0; right: 0; top: 0; bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    align-items: center;
+    justify-content: center;
+}
+.end-box {
+    padding: 24px 32px;
+    background-color: rgb(20, 26, 32);
+    border-radius: 6px;
+    align-items: center;
+}
+.end-title { font-size: 36px; color: rgb(255, 255, 255); -unity-font-style: bold; }
+.end-text { font-size: 18px; color: rgb(220, 220, 220); margin-top: 8px; }
+.end-buttons { flex-direction: row; margin-top: 16px; }
+.hidden { display: none; }
