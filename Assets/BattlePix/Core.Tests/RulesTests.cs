@@ -48,7 +48,7 @@ namespace BattlePix.Core.Tests
             Assert.AreEqual("no_forts", r.ProfileName(3));
             Assert.AreEqual(1000000, r.Profile(3).FortLossThresholdPx);
             r.AssignProfile(3, "no_strikes");
-            Assert.AreEqual(1000000, r.Profile(3).StrikeMinBattalions);
+            Assert.AreEqual(1000000, r.Profile(3).StrikeSurplusBattalions);
             Assert.Throws<System.FormatException>(() => r.AssignProfile(1, "missing"));
         }
 

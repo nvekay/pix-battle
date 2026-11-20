@@ -76,7 +76,10 @@ namespace BattlePix.Core
             }
 
             // 4. Удар по самому выгодному соседу; лидер получает бонус (догпайл — тормоз snowball).
-            if (me.Battalions >= p.StrikeMinBattalions && !HasActiveStrike(w, self))
+            // Только из излишка над целью плотности и не чаще раза в strikeCooldownTicks.
+            long surplusNeed = (long)p.TargetDensity_milli * warLen / 100 + (long)p.StrikeSurplusBattalions * 1000;
+            bool cooled = me.LastStrikeTick < 0 || w.Tick - me.LastStrikeTick >= p.StrikeCooldownTicks;
+            if (me.Battalions >= 1 && (long)me.Battalions * 1000 >= surplusNeed && cooled && !HasActiveStrike(w, self))
             {
                 int best = 0;
                 long bestScore = long.MinValue;

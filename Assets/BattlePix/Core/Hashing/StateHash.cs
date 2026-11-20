@@ -7,7 +7,7 @@ namespace BattlePix.Core
     /// <summary>
     /// Хеш состояния: FNV-1a 64 по байтам (int — 4 байта LE, short — 2 байта LE, ulong — 8 байт LE) в порядке:
     /// 1) Tick, Owner, Terrain;
-    /// 2) для каждой нации по id: Id, Alive, Capital, Pixels, Gold, Battalions, FortsAlive, DiedAtTick, Recruits, FortsBuilt, Strikes;
+    /// 2) для каждой нации по id: Id, Alive, Capital, Pixels, Gold, Battalions, FortsAlive, DiedAtTick, Recruits, FortsBuilt, Strikes, LastStrikeTick;
     /// 3) Forts по слотам: Pixel, Owner, Alive;
     /// 4) StrikeUntil, FlipHistory целиком;
     /// 5) state и inc всех потоков в порядке RngStream;
@@ -99,6 +99,7 @@ namespace BattlePix.Core
                 h = I(h, n.Recruits);
                 h = I(h, n.FortsBuilt);
                 h = I(h, n.Strikes);
+                h = I(h, n.LastStrikeTick);
             }
 
             for (int i = 0; i < Forts.Length; i++)
@@ -154,6 +155,7 @@ namespace BattlePix.Core
                 h = Fnv1a64.AddInt32(h, n.Recruits);
                 h = Fnv1a64.AddInt32(h, n.FortsBuilt);
                 h = Fnv1a64.AddInt32(h, n.Strikes);
+                h = Fnv1a64.AddInt32(h, n.LastStrikeTick);
             }
             var forts = world.Forts;
             for (int i = 0; i < forts.Length; i++)
