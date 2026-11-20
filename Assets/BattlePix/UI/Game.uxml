@@ -1,0 +1,52 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="Game.uss" />
+    <ui:VisualElement name="root" class="root">
+        <ui:VisualElement name="hud" class="bar top-bar">
+            <ui:Label name="hud-gold" class="hud" text="Золото 300" />
+            <ui:Label name="hud-income" class="hud" text="+2,0/с" />
+            <ui:Label name="hud-army" class="hud" text="3 · −0,8/с" />
+            <ui:Label name="hud-land" class="hud" text="0% / 40%" />
+            <ui:Label name="hud-timer" class="hud" text="45:00" />
+            <ui:VisualElement class="spacer" />
+            <ui:Button name="btn-pause" class="btn" text="Пауза" />
+            <ui:Button name="btn-x1" class="btn" text="×1" />
+            <ui:Button name="btn-x2" class="btn" text="×2" />
+            <ui:Button name="btn-x4" class="btn" text="×4" />
+            <ui:Button name="btn-debug" class="btn" text="⚙" />
+        </ui:VisualElement>
+        <ui:VisualElement name="debug-panel" class="bar debug-panel hidden">
+            <ui:Label name="status" class="status" text="..." />
+            <ui:Button name="btn-step" class="btn" text="Шаг" />
+            <ui:TextField name="seed" class="seed" label="Сид" value="42" />
+            <ui:Button name="btn-new" class="btn" text="Новая партия" />
+            <ui:Button name="btn-save" class="btn" text="Сохранить реплей" />
+        </ui:VisualElement>
+        <ui:VisualElement name="map-area" class="map-area">
+            <ui:Label name="pixel-info" class="panel pixel-info hidden" text="" />
+            <ui:Label name="tip" class="panel tip hidden" text="" />
+        </ui:VisualElement>
+        <ui:VisualElement name="mode-bar" class="bar mode-bar hidden">
+            <ui:Label name="mode-text" class="mode-text" text="" />
+            <ui:Button name="btn-confirm" class="btn btn-confirm" text="Подтвердить" />
+            <ui:Button name="btn-cancel" class="btn" text="Отмена" />
+        </ui:VisualElement>
+        <ui:VisualElement name="actions" class="bar bottom-bar">
+            <ui:Button name="btn-recruit" class="btn action" text="Батальон 200" />
+            <ui:Button name="btn-fort" class="btn action" text="Крепость 400" />
+            <ui:Button name="btn-strike" class="btn action" text="Удар" />
+        </ui:VisualElement>
+        <ui:Label name="toast" class="toast hidden" text="" />
+        <ui:VisualElement name="end-screen" class="end-screen hidden">
+            <ui:VisualElement class="end-box">
+                <ui:Label name="end-title" class="end-title" text="Победа" />
+                <ui:Label name="end-reason" class="end-text" text="" />
+                <ui:Label name="end-stats" class="end-text" text="" />
+                <ui:VisualElement class="end-buttons">
+                    <ui:Button name="btn-again" class="btn" text="Ещё партия" />
+                    <ui:Button name="btn-same" class="btn" text="Та же карта" />
+                    <ui:Button name="btn-end-save" class="btn" text="Сохранить реплей" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
