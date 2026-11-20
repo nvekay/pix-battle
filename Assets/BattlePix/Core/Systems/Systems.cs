@@ -58,6 +58,8 @@ namespace BattlePix.Core
             var list = new List<ISimSystem>
             {
                 new FrontSystem(),
+                new EconomySystem(),
+                new StrikeSystem(),
             };
             return new SystemPipeline(list.ToArray());
         }

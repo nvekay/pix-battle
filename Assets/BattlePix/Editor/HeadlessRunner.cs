@@ -92,7 +92,15 @@ namespace BattlePix.Editor
                 while (!sim.World.IsOver)
                 {
                     for (int k = 0; k < perTick[sim.World.Tick]; k++)
-                        sim.EnqueueFromUi(CommandType.Noop, human, rng.NextInt(sim.World.PixelCount), 0);
+                    {
+                        // Случайные игровые команды человека: часть заведомо отклонится, это тоже проверка реплея.
+                        switch (rng.NextInt(3))
+                        {
+                            case 0: sim.EnqueueFromUi(CommandType.Recruit, human, 0, 0); break;
+                            case 1: sim.EnqueueFromUi(CommandType.BuildFort, human, rng.NextInt(sim.World.PixelCount), 0); break;
+                            default: sim.EnqueueFromUi(CommandType.Strike, human, 1 + rng.NextInt(rules.NationCount), 0); break;
+                        }
+                    }
                     sim.Step();
                 }
                 var replay = ReplayFile.Capture(sim, BuildInfo.Version, dataHash);

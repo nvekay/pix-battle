@@ -40,6 +40,20 @@ namespace BattlePix.Core
         }
 
         /// <summary>
+        /// Команда ядра (ИИ) на тик currentTick + 1. Валидация и применение те же, но в лог реплея она не идёт:
+        /// при проигрывании ИИ отдаст её сам.
+        /// </summary>
+        internal void EnqueueInternal(int currentTick, ref Command cmd)
+        {
+            cmd.Tick = currentTick + 1;
+            int seq = 0;
+            for (int i = 0; i < _pending.Count; i++)
+                if (_pending[i].Tick == cmd.Tick) seq++;
+            cmd.Seq = seq;
+            _pending.Add(cmd);
+        }
+
+        /// <summary>
         /// Забирает команды на данный тик, отсортированные по (Nation, Seq).
         /// Результат живёт до следующего вызова.
         /// </summary>
