@@ -67,6 +67,9 @@ namespace BattlePix.Core
             TickLimit = tickLimit;
             World = new World(config.Width, config.Height, rules.NationCount, seed, rules);
             MapGenerator.Generate(World);
+            Fortifications.StampCapitals(World);
+            FrontSystem.RebuildFrontier(World);
+            FrontSystem.RecountFrontLen(World);
             World.MarkAllDirty();
             Queue = new CommandQueue(config.CommandHorizonTicks);
             Pipeline = SystemPipeline.CreateWithRules(config, rules);
@@ -177,6 +180,10 @@ namespace BattlePix.Core
             }
         }
 
-        public void Dispose() => World.Dispose();
+        public void Dispose()
+        {
+            Pipeline.Dispose();
+            World.Dispose();
+        }
     }
 }

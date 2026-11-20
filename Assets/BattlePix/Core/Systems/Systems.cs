@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace BattlePix.Core
@@ -32,7 +33,7 @@ namespace BattlePix.Core
     /// <summary>
     /// Фиксированный порядок систем. Порядок задаётся здесь списком, а не порядком регистрации в рантайме.
     /// </summary>
-    public sealed class SystemPipeline
+    public sealed class SystemPipeline : IDisposable
     {
         readonly ISimSystem[] _systems;
 
@@ -54,8 +55,25 @@ namespace BattlePix.Core
         /// <summary>Пайплайн партии с правилами. Порядок — спека 5.2.</summary>
         public static SystemPipeline CreateWithRules(SimConfig cfg, Rules rules)
         {
-            var list = new List<ISimSystem>();
+            var list = new List<ISimSystem>
+            {
+                new FrontSystem(),
+            };
             return new SystemPipeline(list.ToArray());
+        }
+
+        /// <summary>Система пайплайна по типу (тесты: однопоточный фронт).</summary>
+        public T Get<T>() where T : class, ISimSystem
+        {
+            foreach (var s in _systems)
+                if (s is T t) return t;
+            return null;
+        }
+
+        public void Dispose()
+        {
+            foreach (var s in _systems)
+                if (s is IDisposable d) d.Dispose();
         }
 
         public void Tick(World world, CommandContext ctx)

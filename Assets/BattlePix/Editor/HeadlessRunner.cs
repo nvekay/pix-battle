@@ -21,6 +21,7 @@ namespace BattlePix.Editor
     ///   ... -replay &lt;файл&gt; [-ignoreDataHash] [-human N]
     ///   ... -determinism &lt;сид&gt; [-ticks N]
     ///   ... -recordReplay &lt;файл&gt; [-seed N] [-ticks N] [-commands 200] [-human N] — синтетический реплей для проверки
+    ///   -safetyChecks — включить проверки безопасности Burst (по умолчанию выключены: замер тика как в игроке).
     /// Партии идут с правилами из Data/. -ticks — страховочный лимит: партию заканчивают правила.
     /// Отладка: -crashSeed N [-crashTick T] бросает искусственное исключение в партии с сидом N.
     /// Коды выхода: 0 — всё прошло; 1 — крах или расхождение; 2 — реплей от других данных.
@@ -30,6 +31,9 @@ namespace BattlePix.Editor
         public const double TickBudgetMs = 0.25;
         /// <summary>Страховочный лимит по умолчанию: 50 минут. Упёрлись — это баг правил.</summary>
         public const int DefaultTickLimit = 30000;
+
+        /// <summary>Были ли включены проверки безопасности Burst в этом прогоне.</summary>
+        public static bool SafetyChecks { get; private set; }
 
         public static void Run()
         {
@@ -51,6 +55,11 @@ namespace BattlePix.Editor
         {
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture; // точки в числах отчёта на любой локали
             var a = new Args(args);
+            // Проверки безопасности Burst в редакторе на порядок замедляют горячие джобы (в игроке их нет).
+            // Для замера бюджета тика они выключены; -safetyChecks включает их для отладки краха.
+            bool safety = a.Has("-safetyChecks");
+            Unity.Burst.BurstCompiler.Options.EnableBurstSafetyChecks = safety;
+            SafetyChecks = safety;
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
             var data = GameData.LoadFromDisk(GameData.DataDir);
             ulong dataHash = data.DataHash;
@@ -112,6 +121,7 @@ namespace BattlePix.Editor
                 DataHash = Fnv1a64.ToHex(dataHash),
                 Ticks = ticks,
                 TickBudgetMs = TickBudgetMs,
+                BurstSafetyChecks = SafetyChecks,
                 StartedAt = DateTime.Now.ToString("s", CultureInfo.InvariantCulture),
             };
 
@@ -342,6 +352,7 @@ namespace BattlePix.Editor
         public string DataHash;
         public int Ticks;
         public double TickBudgetMs;
+        public bool BurstSafetyChecks;
         public string StartedAt;
         public double TotalSeconds;
     }
@@ -421,7 +432,8 @@ namespace BattlePix.Editor
             sb.AppendLine($"- Unity: {info.UnityVersion}, сборка: {info.Build}, dataHash: {info.DataHash}");
             sb.AppendLine($"- Старт: {info.StartedAt}");
             sb.AppendLine($"- Партий: {results.Count}, упало: {crashed}");
-            sb.AppendLine($"- Тиков на партию: {info.Ticks}");
+            sb.AppendLine($"- Страховочный лимит тиков: {info.Ticks}");
+            sb.AppendLine($"- Проверки безопасности Burst: {(info.BurstSafetyChecks ? "включены (замер тика завышен)" : "выключены, как в игроке")}");
             sb.AppendLine(string.Format(inv, "- Общее время: {0:0.0} с", info.TotalSeconds));
             sb.AppendLine(string.Format(inv, "- Средний тик: {0:0.0000} мс, худший p99 по партиям: {1:0.0000} мс", mean, p99));
             sb.AppendLine(string.Format(inv, "- Бюджет тика {0} мс: {1}", info.TickBudgetMs,
