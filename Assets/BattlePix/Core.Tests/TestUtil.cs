@@ -38,8 +38,8 @@ namespace BattlePix.Core.Tests
 
         /// <summary>
         /// Партия, где все нации (через очередь, как человек) раз в period тиков отдают случайную допустимую команду:
-        /// набор пехоты или брони (в своё или новое соединение), назначение на фронт или в тыл, смена приказа.
-        /// Нужна, пока у ИИ нет правил соединений: иначе соединения в тестах всю партию стоят в тылу.
+        /// набор пехотной или танковой дивизии, назначение дивизии на фронт или в тыл, смена приказа фронту.
+        /// Не зависит от правил ИИ: тесты хеша и производного состояния гоняют все три команды.
         /// </summary>
         public static void RunWithBot(Simulation sim, int ticks, ulong botSeed, int period = 20)
         {
@@ -61,19 +61,19 @@ namespace BattlePix.Core.Tests
         {
             if (w.Nation(id).Alive == 0) return null;
             var options = new System.Collections.Generic.List<Command>();
-            for (int k = -1; k < w.MaxFormationsPerNation; k++)
+            for (int type = 0; type < w.Rules.Divisions.Length; type++)
+                if (GameCommands.ValidateRecruit(w, id, type) == RejectReason.None)
+                    options.Add(new Command { Nation = id, Type = CommandType.RecruitDivision, A = type });
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
             {
-                if (k >= 0 && !GameCommands.OwnFormation(w, id, k)) continue;
-                for (int type = 0; type < w.Rules.Units.Length; type++)
-                    if (GameCommands.ValidateRecruit(w, id, k, type) == RejectReason.None)
-                        options.Add(new Command { Nation = id, Type = CommandType.RecruitUnit, A = k, B = type });
-                if (k < 0) continue;
+                if (!GameCommands.OwnDivision(w, id, k)) continue;
                 for (int d = 0; d <= w.NationCount; d++)
                     if (d != id && GameCommands.ValidateAssign(w, id, k, d) == RejectReason.None)
-                        options.Add(new Command { Nation = id, Type = CommandType.AssignFormation, A = k, B = d });
-                var f = w.FormationAt(w.FormationSlot(id, k));
-                options.Add(new Command { Nation = id, Type = CommandType.SetOrder, A = k, B = 1 - f.Order });
+                        options.Add(new Command { Nation = id, Type = CommandType.AssignDivision, A = k, B = d });
             }
+            for (int d = 1; d <= w.NationCount; d++)
+                if (d != id && w.FrontLength(id, d) > 0 && GameCommands.ValidateFrontOrder(w, id, d, 0) == RejectReason.None)
+                    options.Add(new Command { Nation = id, Type = CommandType.SetFrontOrder, A = d, B = 1 - w.FrontOrderOf(id, d) });
             if (options.Count == 0) return null;
             return options[rng.NextInt(options.Count)];
         }

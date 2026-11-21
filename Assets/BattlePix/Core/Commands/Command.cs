@@ -14,12 +14,19 @@ namespace BattlePix.Core
         BuildFort = 3,
         /// <summary>Устарело: удар убран (01b). Obsolete.</summary>
         Strike = 4,
-        /// <summary>Набрать батальон. A = номер соединения k (−1 — новое со штабом), B = тип батальона.</summary>
+        /// <summary>Устарело (соединения 01b): в мире с правилами Obsolete.</summary>
         RecruitUnit = 5,
-        /// <summary>Назначить соединение. A = k, B = id противника (0 — в тыл).</summary>
+        /// <summary>Устарело (соединения 01b): Obsolete.</summary>
         AssignFormation = 6,
-        /// <summary>Приказ соединению. A = k, B = 0 оборона / 1 наступление.</summary>
+        /// <summary>Устарело (соединения 01b): Obsolete.</summary>
         SetOrder = 7,
+        /// <summary>Набрать дивизию (01c). A = тип дивизии, B не используется.</summary>
+        RecruitDivision = 8,
+        /// <summary>Назначить дивизию. A = номер дивизии k, B = id противника (0 — в тыл).</summary>
+        AssignDivision = 9,
+        /// <summary>Приказ своей стороне фронта. A = id противника, B = 0 оборона / 1 наступление.</summary>
+        SetFrontOrder = 10,
+        // Значения только дописываются.
     }
 
     public struct Command
@@ -67,18 +74,24 @@ namespace BattlePix.Core
         RulesDisabled = 13,
         /// <summary>Отладочная команда (DebugSetOwner) в мире с правилами.</summary>
         DebugOnly = 14,
-        /// <summary>Устаревшая команда (Recruit, BuildFort, Strike) в мире с правилами.</summary>
+        /// <summary>Устаревшая команда (Recruit, BuildFort, Strike, RecruitUnit, AssignFormation, SetOrder) в мире с правилами.</summary>
         Obsolete = 15,
-        /// <summary>Нет такого живого соединения у нации.</summary>
+        /// <summary>Больше не выдаётся (соединения 01b).</summary>
         FormationInvalid = 16,
-        /// <summary>В соединении уже maxBattalions батальонов.</summary>
+        /// <summary>Больше не выдаётся (соединения 01b).</summary>
         FormationFull = 17,
-        /// <summary>У нации уже maxFormationsPerNation соединений.</summary>
+        /// <summary>Больше не выдаётся (соединения 01b).</summary>
         FormationLimit = 18,
+        /// <summary>Больше не выдаётся (соединения 01b).</summary>
         UnitTypeInvalid = 19,
-        /// <summary>Соединение уже стоит на этом фронте.</summary>
+        /// <summary>Дивизия уже стоит на этом фронте (и не в пути).</summary>
         AlreadyThere = 20,
         OrderInvalid = 21,
+        /// <summary>Нет такой живой дивизии у нации.</summary>
+        DivisionInvalid = 22,
+        /// <summary>У нации уже maxDivisionsPerNation дивизий.</summary>
+        DivisionLimit = 23,
+        DivisionTypeInvalid = 24,
         // Значения только дописываются.
     }
 

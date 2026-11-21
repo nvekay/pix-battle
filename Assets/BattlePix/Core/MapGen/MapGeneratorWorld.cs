@@ -51,10 +51,11 @@ namespace BattlePix.Core
                 n.Gold = rules.Economy.StartGold_c;
                 nations[k] = n;
 
-                // Стартовое соединение (01b §5.7): слот 0, тыл, оборона, startInfantry пехоты на 100%.
-                FormationSystem.CreateFormation(world, id, 0);
-                for (int b = 0; b < rules.Formations.StartInfantry; b++)
-                    FormationSystem.AddBattalion(world, world.FormationSlot(id, 0), UnitTypes.Infantry);
+                // Стартовые дивизии (01c §4.7): по типам подряд со слота 0, готовы, в тылу, численность и организация 100%.
+                int slotK = 0;
+                for (int t = 0; t < rules.Army.StartDivisions.Length; t++)
+                    for (int c = 0; c < rules.Army.StartDivisions[t]; c++)
+                        DivisionSystem.Create(world, id, slotK++, (byte)t, 0);
             }
             world.MapGen = r.Stats;
             world.MarkAllDirty();

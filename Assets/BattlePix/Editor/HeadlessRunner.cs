@@ -98,12 +98,19 @@ namespace BattlePix.Editor
                     for (int k = 0; k < perTick[sim.World.Tick]; k++)
                     {
                         // Случайные игровые команды человека: часть заведомо отклонится, это тоже проверка реплея.
-                        int slot = rng.NextInt(4) - 1; // −1..2: новое соединение или одно из первых трёх
-                        switch (rng.NextInt(3))
+                        int slot = rng.NextInt(4); // одна из первых четырёх дивизий
+                        switch (rng.NextInt(4))
                         {
-                            case 0: sim.EnqueueFromUi(CommandType.RecruitUnit, human, slot, rng.NextInt(2)); break;
-                            case 1: sim.EnqueueFromUi(CommandType.AssignFormation, human, slot < 0 ? 0 : slot, rng.NextInt(rules.NationCount + 1)); break;
-                            default: sim.EnqueueFromUi(CommandType.SetOrder, human, slot < 0 ? 0 : slot, rng.NextInt(2)); break;
+                            case 0: sim.EnqueueFromUi(CommandType.RecruitDivision, human, rng.NextInt(2), 0); break;
+                            case 1: sim.EnqueueFromUi(CommandType.AssignDivision, human, slot, rng.NextInt(rules.NationCount + 1)); break;
+                            case 2:
+                            {
+                                // Пачка: первые четыре дивизии на один фронт в один тик, как выделение в UI.
+                                int target = rng.NextInt(rules.NationCount + 1);
+                                for (int j = 0; j < 4; j++) sim.EnqueueFromUi(CommandType.AssignDivision, human, j, target);
+                                break;
+                            }
+                            default: sim.EnqueueFromUi(CommandType.SetFrontOrder, human, 1 + rng.NextInt(rules.NationCount), rng.NextInt(2)); break;
                         }
                     }
                     sim.Step();
@@ -229,7 +236,7 @@ namespace BattlePix.Editor
                 var aliveSec = new int[nationCount];
                 var attackSec = new int[nationCount];
                 var focusSec = new int[nationCount];
-                var peakFormations = new int[nationCount];
+                var peakDivisions = new int[nationCount];
                 while (!w.IsOver)
                 {
                     if (w.Tick == crashAtTick)
@@ -247,7 +254,7 @@ namespace BattlePix.Editor
                             var nat = w.Nations[i];
                             if (nat.Alive == 0) continue;
                             aliveSec[i]++;
-                            if (nat.Formations > peakFormations[i]) peakFormations[i] = nat.Formations;
+                            if (nat.Divisions > peakDivisions[i]) peakDivisions[i] = nat.Divisions;
                             FocusState(w, (byte)(i + 1), out bool attacking, out bool focus);
                             if (attacking) attackSec[i]++;
                             if (focus) focusSec[i]++;
@@ -284,10 +291,10 @@ namespace BattlePix.Editor
                         Profile = rules.ProfileName(n.Id),
                         DiedAtTick = n.DiedAtTick,
                         Pixels = n.Pixels,
-                        RecruitedInf = n.RecruitedInf,
-                        RecruitedArmor = n.RecruitedArmor,
-                        BattalionsLost = n.BattalionsLost,
-                        PeakFormations = peakFormations[i],
+                        RecruitedInfDiv = n.RecruitedInfDiv,
+                        RecruitedArmorDiv = n.RecruitedArmorDiv,
+                        DivisionsLost = n.DivisionsLost,
+                        PeakDivisions = peakDivisions[i],
                         AttackTime_bp = aliveSec[i] > 0 ? (int)((long)attackSec[i] * 10000 / aliveSec[i]) : 0,
                         FocusTime_bp = aliveSec[i] > 0 ? (int)((long)focusSec[i] * 10000 / aliveSec[i]) : 0,
                         NeighboursAt5 = neighbours5[i],
@@ -318,8 +325,8 @@ namespace BattlePix.Editor
 
         /// <summary>Сколько живых соседей с общей границей у каждой нации (индекс id − 1).</summary>
         /// <summary>
-        /// attacking — у нации хоть одно соединение на месте наступает. focus — наступление на одном фронте и ни одного
-        /// наступающего на другом существующем фронте (спека 01b §8).
+        /// attacking — у нации есть фронт с приказом «наступление» и дивизиями на месте. focus — такие фронты есть,
+        /// но не все существующие (спека 01b §8, 01c §7: по FrontOrder и дивизиям на месте).
         /// </summary>
         public static void FocusState(World w, byte self, out bool attacking, out bool focus)
         {
@@ -328,10 +335,11 @@ namespace BattlePix.Editor
             {
                 if (d == self || w.FrontLength(self, d) <= 0 || w.Nation((byte)d).Alive == 0) continue;
                 fronts++;
-                for (int k = 0; k < w.MaxFormationsPerNation; k++)
+                if (w.FrontOrderOf(self, d) != Orders.Attack) continue;
+                for (int k = 0; k < w.MaxDivisionsPerNation; k++)
                 {
-                    var f = w.FormationAt(w.FormationSlot(self, k));
-                    if (w.OnFront(f) && f.Front == d && f.Order == Orders.Attack)
+                    var v = w.DivisionAt(w.DivisionSlot(self, k));
+                    if (w.OnFront(v) && v.Front == d)
                     {
                         attackedFronts++;
                         break;
@@ -546,10 +554,10 @@ namespace BattlePix.Editor
         public string Profile;
         public int DiedAtTick;
         public int Pixels;
-        public int RecruitedInf;
-        public int RecruitedArmor;
-        public int BattalionsLost;
-        public int PeakFormations;
+        public int RecruitedInfDiv;
+        public int RecruitedArmorDiv;
+        public int DivisionsLost;
+        public int PeakDivisions;
         /// <summary>Доля секунд жизни, когда хоть одно соединение наступает, bp.</summary>
         public int AttackTime_bp;
         /// <summary>Доля секунд жизни с «фокусом»: наступление на одном фронте и ни одного наступающего на другом, bp.</summary>
@@ -772,17 +780,17 @@ namespace BattlePix.Editor
                         .Select(g => string.Format(inv, "{0}{1}: наций {2}, побед {3} ({4:0}%), пали до 8-й мин {5} ({6:0}%)",
                             g.Key, g.Key == 5 ? "+" : "", g.Count(), g.Count(t => t.r.Winner == t.x.Id), 100.0 * g.Count(t => t.r.Winner == t.x.Id) / g.Count(),
                             g.Count(t => t.x.DiedAtTick >= 0 && t.x.DiedAtTick < 4800), 100.0 * g.Count(t => t.x.DiedAtTick >= 0 && t.x.DiedAtTick < 4800) / g.Count()))));
-                sb.AppendLine(string.Format(inv, "- На нацию за партию в среднем: набрано пехоты {0:0.0}, брони {1:0.0}, погибло батальонов {2:0.0}, пик соединений {3:0.0}; пали до конца партии {4:0}%",
-                    all.Average(x => x.RecruitedInf), all.Average(x => x.RecruitedArmor), all.Average(x => x.BattalionsLost),
-                    all.Average(x => x.PeakFormations), 100.0 * all.Count(x => x.DiedAtTick >= 0) / all.Count));
-                long recruited = all.Sum(x => (long)x.RecruitedInf + x.RecruitedArmor);
-                sb.AppendLine(string.Format(inv, "- Доля брони в наборе: {0:0.0}%", recruited > 0 ? 100.0 * all.Sum(x => (long)x.RecruitedArmor) / recruited : 0));
+                sb.AppendLine(string.Format(inv, "- На нацию за партию в среднем: набрано пехотных дивизий {0:0.0}, танковых {1:0.0}, погибло дивизий {2:0.0}, пик дивизий {3:0.0}; пали до конца партии {4:0}%",
+                    all.Average(x => x.RecruitedInfDiv), all.Average(x => x.RecruitedArmorDiv), all.Average(x => x.DivisionsLost),
+                    all.Average(x => x.PeakDivisions), 100.0 * all.Count(x => x.DiedAtTick >= 0) / all.Count));
+                long recruited = all.Sum(x => (long)x.RecruitedInfDiv + x.RecruitedArmorDiv);
+                sb.AppendLine(string.Format(inv, "- Доля танковых в наборе: {0:0.0}%", recruited > 0 ? 100.0 * all.Sum(x => (long)x.RecruitedArmorDiv) / recruited : 0));
                 sb.AppendLine(string.Format(inv, "- Время в наступлении (attackTime): в среднем по нациям {0:0.0}%; фокус (focusTime): {1:0.0}%",
                     all.Average(x => x.AttackTime_bp) / 100.0, all.Average(x => x.FocusTime_bp) / 100.0));
                 foreach (var g in done.SelectMany(r => r.Nations).GroupBy(x => x.Profile).OrderBy(g => g.Key))
-                    sb.AppendLine(string.Format(inv, "- Профиль {0}: attackTime {1:0.0}%, focusTime {2:0.0}%, броня {3:0.0} / пехота {4:0.0}, потери {5:0.0}",
+                    sb.AppendLine(string.Format(inv, "- Профиль {0}: attackTime {1:0.0}%, focusTime {2:0.0}%, танковых {3:0.0} / пехотных {4:0.0}, потери дивизий {5:0.0}",
                         g.Key, g.Average(x => x.AttackTime_bp) / 100.0, g.Average(x => x.FocusTime_bp) / 100.0,
-                        g.Average(x => x.RecruitedArmor), g.Average(x => x.RecruitedInf), g.Average(x => x.BattalionsLost)));
+                        g.Average(x => x.RecruitedArmorDiv), g.Average(x => x.RecruitedInfDiv), g.Average(x => x.DivisionsLost)));
                 sb.AppendLine();
             }
 

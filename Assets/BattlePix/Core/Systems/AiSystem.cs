@@ -1,11 +1,11 @@
 namespace BattlePix.Core
 {
     /// <summary>
-    /// ИИ (спека 01b §5.8). ИИ — не отдельная логика, а профиль весов из ai.json, который выбирает из тех же команд.
+    /// ИИ (спека 01c §4.8). ИИ — не отдельная логика, а профиль весов из ai.json, который выбирает из тех же команд.
     /// Каждая ИИ-нация думает раз в thinkIntervalTicks со сдвигом (id − 1) % interval и отдаёт не больше одной команды
     /// на Tick + 1 через ту же очередь. Читает только World (силы сторон из SidePow этого тика) и свои веса.
-    /// Правила сверху вниз, первое сработавшее отдаёт команду: отвести обескровленное, закрыть прорыв, ударный кулак,
-    /// наступать обязательно, набор. Профиль spread заменяет правила 2–4 «ровным слоем».
+    /// Правила сверху вниз, первое сработавшее отдаёт команду: в тыл обескровленную, закрыть прорыв, ротация, кулак,
+    /// приказы фронтам, набор. Профиль spread заменяет правила 2–5 «ровным слоем».
     /// </summary>
     public sealed class AiSystem : ISimSystem
     {
@@ -28,7 +28,8 @@ namespace BattlePix.Core
         bool Think(World w, byte self, AiProfile p, out Command cmd)
         {
             cmd = default;
-            int n = w.NationCount, maxF = w.MaxFormationsPerNation;
+            int n = w.NationCount, maxK = w.MaxDivisionsPerNation;
+            var army = w.Rules.Army;
             if (_threat.Length != n + 1)
             {
                 _threat = new long[n + 1];
@@ -40,6 +41,7 @@ namespace BattlePix.Core
             // Оценки фронтов: threat, opp и цель (max opp, при равенстве меньший id). Шум — по фронтам в порядке id.
             int target = 0;
             long bestOpp = long.MinValue;
+            FillPotential(w, self);
             for (int d = 1; d <= n; d++)
             {
                 _threat[d] = 0;
@@ -57,63 +59,57 @@ namespace BattlePix.Core
                 }
             }
 
-            // 1. Отвести обескровленное.
-            for (int k = 0; k < maxF; k++)
+            // 1. В тыл обескровленную: на фронте, численность ниже rearStrength, на её фронте нет угрозы.
+            for (int k = 0; k < maxK; k++)
             {
-                int slot = w.FormationSlot(self, k);
-                var f = w.FormationAt(slot);
-                if (f.Alive == 0 || f.Front == 0) continue;
-                int avg = FormationSystem.AverageStrength(w, slot);
-                if (f.Order == Orders.Attack && avg < p.RetreatStrength_bp)
-                    return Issue(self, CommandType.SetOrder, k, Orders.Defend, out cmd);
-                if (f.Order == Orders.Defend && avg < p.RearStrength_bp && _threat[f.Front] < p.ThreatRatio_bp)
-                    return Issue(self, CommandType.AssignFormation, k, 0, out cmd);
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (!w.OnFront(v)) continue;
+                if (v.Strength_bp < p.RearStrength_bp && _threat[v.Front] < p.ThreatRatio_bp)
+                    return Issue(self, CommandType.AssignDivision, k, 0, out cmd);
             }
 
             if (p.Spread)
             {
                 if (Spread(w, self, p, out cmd)) return true;
             }
-            else if (target != 0)
+            else
             {
-                // 2. Закрыть прорыв: фронт под давлением без своих соединений (на месте или в пути).
-                for (int d = 1; d <= n; d++)
+                if (target != 0)
                 {
-                    if (!IsFront(w, self, d) || _threat[d] < p.ThreatRatio_bp || HasFormationOn(w, self, d)) continue;
-                    int k = RearFormation(w, self, p.DeployStrength_bp);
-                    if (k < 0) k = FromWeakestThreatFront(w, self, target, d);
-                    if (k < 0) continue;
-                    var f = w.FormationAt(w.FormationSlot(self, k));
-                    if (f.Order == Orders.Attack) return Issue(self, CommandType.SetOrder, k, Orders.Defend, out cmd);
-                    return Issue(self, CommandType.AssignFormation, k, d, out cmd);
+                    // 2. Закрыть прорыв: фронт под угрозой без своих дивизий на месте и в пути.
+                    for (int d = 1; d <= n; d++)
+                    {
+                        if (!IsFront(w, self, d) || _threat[d] < p.ThreatRatio_bp || HasDivisionOn(w, self, d)) continue;
+                        int k = FreshRear(w, self, p);
+                        if (k < 0) k = FromWeakestThreatFront(w, self, target, d);
+                        if (k < 0) continue;
+                        return Issue(self, CommandType.AssignDivision, k, d, out cmd);
+                    }
+
+                    // 4. Кулак: свежая готовая дивизия из тыла — на цель.
+                    int rear = FreshRear(w, self, p);
+                    if (rear >= 0) return Issue(self, CommandType.AssignDivision, rear, target, out cmd);
                 }
 
-                // 3. Ударный кулак: из тыла — на цель.
-                int rear = RearFormation(w, self, p.DeployStrength_bp);
-                if (rear >= 0) return Issue(self, CommandType.AssignFormation, rear, target, out cmd);
-
-                // 4. Наступать обязательно, если никто не наступает и на цели есть кем.
-                if (!AnyAttacking(w, self) && _opp[target] >= p.AttackMinRatio_bp)
-                    for (int k = 0; k < maxF; k++)
-                    {
-                        int slot = w.FormationSlot(self, k);
-                        var f = w.FormationAt(slot);
-                        if (!w.OnFront(f) || f.Front != target || f.Order == Orders.Attack) continue;
-                        if (FormationSystem.AverageStrength(w, slot) < p.AttackStrength_bp) continue;
-                        return Issue(self, CommandType.SetOrder, k, Orders.Attack, out cmd);
-                    }
+                // 5. Приказы: наступление на цели, если opp ≥ attackMinRatio, на остальных фронтах — оборона.
+                for (int d = 1; d <= n; d++)
+                {
+                    if (d == self || w.Nation((byte)d).Alive == 0) continue;
+                    byte want = d == target && _opp[d] >= p.AttackMinRatio_bp ? Orders.Attack : Orders.Defend;
+                    if (w.FrontOrderOf(self, d) != want) return Issue(self, CommandType.SetFrontOrder, d, want, out cmd);
+                }
             }
 
-            // 5. Набор: броня под равнину цели, пока её доля в армии ниже потолка; иначе пехота.
+            // 6. Набор: танковая под равнину цели, пока её доля среди живых ниже потолка; иначе пехотная.
             return Recruit(w, self, p, target, out cmd);
         }
 
-        /// <summary>Абляция spread: из тыла — на фронт, где своей обороны на ребро меньше всего; на месте — наступать.</summary>
+        /// <summary>Абляция spread: готовую дивизию из тыла — на фронт, где своей обороны на ребро меньше всего; все приказы — наступление.</summary>
         bool Spread(World w, byte self, AiProfile p, out Command cmd)
         {
             cmd = default;
-            int n = w.NationCount, maxF = w.MaxFormationsPerNation;
-            int rear = RearFormation(w, self, p.DeployStrength_bp);
+            int n = w.NationCount;
+            int rear = FreshRear(w, self, p);
             if (rear >= 0)
             {
                 int best = 0;
@@ -128,14 +124,12 @@ namespace BattlePix.Core
                         best = d;
                     }
                 }
-                if (best != 0) return Issue(self, CommandType.AssignFormation, rear, best, out cmd);
+                if (best != 0) return Issue(self, CommandType.AssignDivision, rear, best, out cmd);
             }
-            for (int k = 0; k < maxF; k++)
+            for (int d = 1; d <= n; d++)
             {
-                var f = w.FormationAt(w.FormationSlot(self, k));
-                if (!w.OnFront(f) || f.Order == Orders.Attack) continue;
-                if (FormationSystem.AverageStrength(w, w.FormationSlot(self, k)) < p.AttackStrength_bp) continue;
-                return Issue(self, CommandType.SetOrder, k, Orders.Attack, out cmd);
+                if (!IsFront(w, self, d) || w.FrontOrderOf(self, d) == Orders.Attack) continue;
+                return Issue(self, CommandType.SetFrontOrder, d, Orders.Attack, out cmd);
             }
             return false;
         }
@@ -145,27 +139,13 @@ namespace BattlePix.Core
             cmd = default;
             var rules = w.Rules;
             var me = w.Nation(self);
-            byte type = UnitTypes.Infantry;
+            byte type = DivisionTypes.Infantry;
             if (target != 0 && PlainShare(w, self, target) >= p.ArmorPlainShare_bp && ArmorShare(w, self) < p.ArmorMaxShare_bp)
-                type = UnitTypes.Armor;
-            if ((long)me.Gold < (long)rules.Units[type].Cost_c + p.RecruitReserve_c) return false;
-
-            int maxF = w.MaxFormationsPerNation;
-            int into = -1;
-            if (target != 0)
-                for (int k = 0; k < maxF && into < 0; k++)
-                {
-                    var f = w.FormationAt(w.FormationSlot(self, k));
-                    if (f.Alive != 0 && f.Front == target && GameCommands.ValidateRecruit(w, self, k, type) == RejectReason.None) into = k;
-                }
-            for (int k = 0; k < maxF && into < 0; k++)
-                if (GameCommands.OwnFormation(w, self, k) && GameCommands.ValidateRecruit(w, self, k, type) == RejectReason.None) into = k;
-            if (into < 0)
-            {
-                if ((long)me.Gold < (long)GameCommands.RecruitCost(w, -1, type) + p.RecruitReserve_c) return false;
-                if (GameCommands.ValidateRecruit(w, self, -1, type) != RejectReason.None) return false;
-            }
-            return Issue(self, CommandType.RecruitUnit, into, type, out cmd);
+                type = DivisionTypes.Armor;
+            if (type >= rules.Divisions.Length) type = DivisionTypes.Infantry;
+            if ((long)me.Gold < (long)rules.DivisionCost(type) + p.RecruitReserve_c) return false;
+            if (GameCommands.ValidateRecruit(w, self, type) != RejectReason.None) return false;
+            return Issue(self, CommandType.RecruitDivision, type, 0, out cmd);
         }
 
         static bool Issue(byte self, CommandType type, int a, int b, out Command cmd)
@@ -178,47 +158,37 @@ namespace BattlePix.Core
 
         static bool IsFront(World w, byte self, int d) => d != self && w.FrontLength(self, d) > 0 && w.Nation((byte)d).Alive != 0;
 
-        /// <summary>Атака всех своих соединений на d, как если бы все наступали там: Σ_tr (att100 / FrontLen) × FrontTerrainLen.</summary>
+        /// <summary>Атака всех своих готовых дивизий по рельефу, очки ×100, как если бы все наступали.</summary>
+        void FillPotential(World w, byte self)
+        {
+            int kinds = World.TerrainKinds;
+            for (int tr = 0; tr < kinds; tr++) _potential[tr] = 0;
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (v.Alive == 0 || v.ReadyTick > w.Tick) continue;
+                for (int tr = 0; tr < kinds; tr++) _potential[tr] += DivisionSystem.Attack100(w, v, tr);
+            }
+        }
+
+        /// <summary>Σ_tr (potential[tr] / FrontLen) × FrontTerrainLen[self, d, tr].</summary>
         long PotentialAttack(World w, byte self, int d)
         {
-            var units = w.Rules.Units;
-            int maxF = w.MaxFormationsPerNation, maxB = w.MaxBattalions, kinds = World.TerrainKinds;
-            for (int tr = 0; tr < kinds; tr++) _potential[tr] = 0;
-            for (int k = 0; k < maxF; k++)
-            {
-                int slot = w.FormationSlot(self, k);
-                if (w.FormationAt(slot).Alive == 0) continue;
-                for (int j = 0; j < maxB; j++)
-                {
-                    var b = w.BattalionAt(slot * maxB + j);
-                    if (b.Alive == 0) continue;
-                    var u = units[b.Type];
-                    for (int tr = 0; tr < kinds; tr++)
-                        _potential[tr] += (long)u.Attack * 100 * u.AttackTerrain_bp[tr] / 10000 * b.Strength_bp / 10000;
-                }
-            }
             int len = w.FrontLength(self, d);
             long sum = 0;
-            for (int tr = 0; tr < kinds; tr++) sum += _potential[tr] / len * w.FrontTerrainLength(self, d, tr);
+            for (int tr = 0; tr < World.TerrainKinds; tr++) sum += _potential[tr] / len * w.FrontTerrainLength(self, d, tr);
             return sum;
         }
 
-        /// <summary>Оборона своих соединений с Front == d (на месте и в пути), очки ×100, по равнине.</summary>
+        /// <summary>Оборона своих дивизий с Front == d (на месте и в пути), очки ×100, по равнине.</summary>
         static long OwnDefense100(World w, byte self, int d)
         {
-            var units = w.Rules.Units;
-            int maxF = w.MaxFormationsPerNation, maxB = w.MaxBattalions;
             long sum = 0;
-            for (int k = 0; k < maxF; k++)
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
             {
-                int slot = w.FormationSlot(self, k);
-                var f = w.FormationAt(slot);
-                if (f.Alive == 0 || f.Front != d) continue;
-                for (int j = 0; j < maxB; j++)
-                {
-                    var b = w.BattalionAt(slot * maxB + j);
-                    if (b.Alive != 0) sum += (long)units[b.Type].Defense * 100 * b.Strength_bp / 10000;
-                }
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (v.Alive == 0 || v.Front != d) continue;
+                sum += (long)w.Rules.DivisionDef100(v.Type, 0) * v.Strength_bp / 10000;
             }
             return sum;
         }
@@ -229,70 +199,55 @@ namespace BattlePix.Core
             return len > 0 ? (int)((long)w.FrontTerrainLength(self, d, 0) * 10000 / len) : 0;
         }
 
-        /// <summary>Доля брони среди живых батальонов, bp.</summary>
+        /// <summary>Доля танковых среди живых дивизий, bp.</summary>
         static int ArmorShare(World w, byte self)
         {
-            int maxF = w.MaxFormationsPerNation, maxB = w.MaxBattalions, all = 0, armor = 0;
-            for (int k = 0; k < maxF; k++)
+            int all = 0, armor = 0;
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
             {
-                int slot = w.FormationSlot(self, k);
-                if (w.FormationAt(slot).Alive == 0) continue;
-                for (int j = 0; j < maxB; j++)
-                {
-                    var b = w.BattalionAt(slot * maxB + j);
-                    if (b.Alive == 0) continue;
-                    all++;
-                    if (b.Type == UnitTypes.Armor) armor++;
-                }
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (v.Alive == 0) continue;
+                all++;
+                if (v.Type == DivisionTypes.Armor) armor++;
             }
             return all > 0 ? armor * 10000 / all : 0;
         }
 
-        static bool HasFormationOn(World w, byte self, int d)
+        /// <summary>Своя дивизия с Front == d на месте или в пути.</summary>
+        static bool HasDivisionOn(World w, byte self, int d)
         {
-            for (int k = 0; k < w.MaxFormationsPerNation; k++)
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
             {
-                var f = w.FormationAt(w.FormationSlot(self, k));
-                if (f.Alive != 0 && f.Front == d) return true;
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (v.Alive != 0 && v.Front == d) return true;
             }
             return false;
         }
 
-        static bool AnyAttacking(World w, byte self)
-        {
-            for (int k = 0; k < w.MaxFormationsPerNation; k++)
-            {
-                var f = w.FormationAt(w.FormationSlot(self, k));
-                if (f.Alive != 0 && f.Front != 0 && f.Order == Orders.Attack) return true;
-            }
-            return false;
-        }
+        /// <summary>Свежая: готова, в тылу, численность ≥ deployStrength, организация ≥ resumeOrg.</summary>
+        static bool Fresh(World w, in Division v, AiProfile p) =>
+            v.Alive != 0 && v.Front == 0 && v.ReadyTick <= w.Tick && v.Strength_bp >= p.DeployStrength_bp && v.Org_bp >= w.Rules.Army.ResumeOrg_bp;
 
-        /// <summary>Первое соединение в тылу с avgStr ≥ minStrength, −1 — нет.</summary>
-        static int RearFormation(World w, byte self, int minStrength)
+        /// <summary>Первая свежая дивизия в тылу, −1 — нет.</summary>
+        static int FreshRear(World w, byte self, AiProfile p)
         {
-            for (int k = 0; k < w.MaxFormationsPerNation; k++)
-            {
-                int slot = w.FormationSlot(self, k);
-                var f = w.FormationAt(slot);
-                if (f.Alive == 0 || f.Front != 0) continue;
-                if (FormationSystem.BattalionCount(w, slot) > 0 && FormationSystem.AverageStrength(w, slot) >= minStrength) return k;
-            }
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+                if (Fresh(w, w.DivisionAt(w.DivisionSlot(self, k)), p)) return k;
             return -1;
         }
 
-        /// <summary>Соединение с фронта с наименьшим threat (кроме цели и самого прорыва), −1 — нет.</summary>
+        /// <summary>Дивизия с фронта с наименьшим threat (кроме цели и самого прорыва), −1 — нет.</summary>
         int FromWeakestThreatFront(World w, byte self, int target, int breach)
         {
             int best = -1;
             long bestThreat = long.MaxValue;
-            for (int k = 0; k < w.MaxFormationsPerNation; k++)
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
             {
-                var f = w.FormationAt(w.FormationSlot(self, k));
-                if (f.Alive == 0 || f.Front == 0 || f.Front == target || f.Front == breach) continue;
-                if (_threat[f.Front] < bestThreat)
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (v.Alive == 0 || v.Front == 0 || v.Front == target || v.Front == breach) continue;
+                if (_threat[v.Front] < bestThreat)
                 {
-                    bestThreat = _threat[f.Front];
+                    bestThreat = _threat[v.Front];
                     best = k;
                 }
             }

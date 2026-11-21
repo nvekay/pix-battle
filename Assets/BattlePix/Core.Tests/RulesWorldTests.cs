@@ -21,16 +21,17 @@ namespace BattlePix.Core.Tests
                 {
                     var w = sim.World;
                     // Трогаем каждое поле, входящее в хеш.
-                    var formations = w.FormationsRW;
-                    for (int i = 0; i < formations.Length; i++)
-                        formations[i] = new Formation
+                    var divisions = w.DivisionsRW;
+                    for (int i = 0; i < divisions.Length; i++)
+                        divisions[i] = new Division
                         {
-                            Owner = (byte)rng.NextInt(nations + 1), Alive = (byte)rng.NextInt(2), Front = (byte)rng.NextInt(nations + 1),
-                            Order = (byte)rng.NextInt(2), ArriveTick = rng.NextInt(100000) - 50,
+                            Owner = (byte)rng.NextInt(nations + 1), Alive = (byte)rng.NextInt(2), Type = (byte)rng.NextInt(2),
+                            Front = (byte)rng.NextInt(nations + 1), ReadyTick = rng.NextInt(100000) - 50, ArriveTick = rng.NextInt(100000) - 50,
+                            Strength_bp = (short)(rng.NextInt(65536) - 32768), Org_bp = (short)(rng.NextInt(65536) - 32768),
+                            Exhausted = (byte)rng.NextInt(2),
                         };
-                    var battalions = w.BattalionsRW;
-                    for (int i = 0; i < battalions.Length; i++)
-                        battalions[i] = new Battalion { Type = (byte)rng.NextInt(2), Alive = (byte)rng.NextInt(2), Strength_bp = (short)(rng.NextInt(65536) - 32768) };
+                    var order = w.FrontOrderRW;
+                    for (int i = 0; i < order.Length; i++) order[i] = (byte)rng.NextInt(2);
                     var flips = w.FlipHistoryRW;
                     for (int i = 0; i < flips.Length; i++) flips[i] = (short)(rng.NextInt(65536) - 32768);
                     var nat = w.NationsRW;
@@ -38,16 +39,15 @@ namespace BattlePix.Core.Tests
                     {
                         var s = nat[i];
                         s.Gold = (int)rng.Next();
-                        s.RecruitedInf = rng.NextInt(1000);
-                        s.RecruitedArmor = rng.NextInt(1000);
-                        s.BattalionsLost = rng.NextInt(1000);
-                        s.Formations = (byte)rng.NextInt(17);
-                        s.Battalions = rng.NextInt(100);
+                        s.RecruitedInfDiv = rng.NextInt(1000);
+                        s.RecruitedArmorDiv = rng.NextInt(1000);
+                        s.DivisionsLost = rng.NextInt(1000);
+                        s.Divisions = (byte)rng.NextInt(33);
                         s.DiedAtTick = rng.NextInt(3) - 1;
                         nat[i] = s;
                     }
                     w.Winner = (byte)rng.NextInt(nations + 1);
-                    // Хеши сравниваются сразу: случайные соединения не обязаны быть согласованы для симуляции.
+                    // Хеши сравниваются сразу: случайные дивизии не обязаны быть согласованы для симуляции.
                     Assert.AreEqual(HashManaged.Compute(w), StateHash.Compute(w), $"world {k}: {config.Width}x{config.Height}, {nations} nations");
                 }
             }
@@ -60,19 +60,27 @@ namespace BattlePix.Core.Tests
             {
                 var w = sim.World;
                 ulong h0 = sim.ComputeHash();
-                var formations = w.FormationsRW;
-                var f = formations[3];
-                f.ArriveTick = 1;
-                formations[3] = f;
+                var divisions = w.DivisionsRW;
+                var v = divisions[3];
+                v.ArriveTick = 1;
+                divisions[3] = v;
                 ulong h1 = sim.ComputeHash();
                 Assert.AreNotEqual(h0, h1);
-                var battalions = w.BattalionsRW;
-                var b = battalions[0];
-                b.Strength_bp -= 1;
-                battalions[0] = b;
-                ulong h1b = sim.ComputeHash();
-                Assert.AreNotEqual(h1, h1b);
-                h1 = h1b;
+                foreach (System.Func<Division, Division> change in new System.Func<Division, Division>[]
+                {
+                    x => { x.Strength_bp -= 1; return x; }, x => { x.Org_bp -= 1; return x; }, x => { x.Exhausted = 1; return x; },
+                    x => { x.ReadyTick = 5; return x; }, x => { x.Type = 1; return x; },
+                })
+                {
+                    divisions[0] = change(divisions[0]);
+                    ulong hc = sim.ComputeHash();
+                    Assert.AreNotEqual(h1, hc);
+                    h1 = hc;
+                }
+                w.FrontOrderRW[5] = 1;
+                ulong ho = sim.ComputeHash();
+                Assert.AreNotEqual(h1, ho);
+                h1 = ho;
                 var flips = w.FlipHistoryRW;
                 flips[7] = 1;
                 ulong h2 = sim.ComputeHash();
@@ -98,7 +106,7 @@ namespace BattlePix.Core.Tests
         }
 
         [Test]
-        public void ReplayFormat3_WithHuman_RoundTrips()
+        public void ReplayFormat4_WithHuman_RoundTrips()
         {
             var config = TestData.Config();
             var rules = TestData.Rules();
@@ -113,13 +121,22 @@ namespace BattlePix.Core.Tests
                 original = ReplayFile.Capture(sim, "test", 0x42);
             }
             var json = original.ToJson();
-            StringAssert.Contains("\"format\": 3", json);
+            StringAssert.Contains("\"format\": 4", json);
             StringAssert.Contains("\"human\": 1", json);
             var loaded = ReplayFile.FromJson(json);
             Assert.AreEqual(1, loaded.Human);
             var r = ReplayPlayer.Verify(loaded, config, rules);
             Assert.IsTrue(r.Ok, r.Error);
             Assert.AreEqual(5, r.CheckpointsCompared);
+        }
+
+        [Test]
+        public void ReplayFormat3_IsRejected_BeforeDivisions()
+        {
+            const string json = "{\"format\":3,\"build\":\"x\",\"seed\":1,\"dataHash\":\"0x0\",\"ticks\":10,\"tickLimit\":0,\"human\":1,\"commands\":[],\"checkpoints\":[]}";
+            var e = Assert.Throws<UnsupportedReplayFormatException>(() => ReplayFile.FromJson(json));
+            Assert.AreEqual(3, e.Format);
+            StringAssert.Contains("before divisions", e.Message);
         }
 
         [Test]

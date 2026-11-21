@@ -53,51 +53,55 @@ namespace BattlePix.Core
         public int Pixels;
         /// <summary>Золото в сотых (100 = 1 золото), не меньше 0.</summary>
         public int Gold;
-        /// <summary>Число живых батальонов во всех соединениях, ведётся инкрементально.</summary>
-        public int Battalions;
-        /// <summary>Число живых соединений (штабов).</summary>
-        public byte Formations;
+        /// <summary>Число живых дивизий (включая готовящиеся), ведётся инкрементально.</summary>
+        public byte Divisions;
         /// <summary>−1, пока жива.</summary>
         public int DiedAtTick;
-        /// <summary>Счётчики для отчёта: набрано пехоты и брони, погибло батальонов (потери и дезертирство).</summary>
-        public int RecruitedInf;
-        public int RecruitedArmor;
-        public int BattalionsLost;
+        /// <summary>Счётчики для отчёта: набрано пехотных и танковых дивизий, погибло дивизий (потери и дезертирство).</summary>
+        public int RecruitedInfDiv;
+        public int RecruitedArmorDiv;
+        public int DivisionsLost;
     }
 
     /// <summary>
-    /// Соединение (спека 01b §4.3): штаб и до maxBattalions батальонов. Слот (owner − 1) × maxFormationsPerNation + k,
-    /// k — номер соединения у нации (игрок видит «k + 1-е»).
+    /// Дивизия (спека 01c §3.2): один из фиксированных типов rules.divisions. Слот (owner − 1) × maxDivisionsPerNation + k,
+    /// k — номер дивизии у нации (игрок видит «k + 1-я»).
     /// </summary>
-    public struct Formation
+    public struct Division
     {
         public byte Owner;
-        /// <summary>1 — есть штаб.</summary>
         public byte Alive;
+        /// <summary>Индекс в rules.divisions: 0 — пехотная, 1 — танковая.</summary>
+        public byte Type;
         /// <summary>id нации-противника, 0 — тыл.</summary>
         public byte Front;
-        /// <summary>0 — оборона, 1 — наступление.</summary>
-        public byte Order;
-        /// <summary>До этого тика (не включая) соединение в пути и не даёт силы; 0 — на месте.</summary>
+        /// <summary>До этого тика (не включая) дивизия готовится: в тылу, силы не даёт. 0 — готова.</summary>
+        public int ReadyTick;
+        /// <summary>До этого тика (не включая) дивизия в пути и не даёт силы; 0 — на месте.</summary>
         public int ArriveTick;
-    }
-
-    /// <summary>Батальон: слот formationSlot × maxBattalions + j.</summary>
-    public struct Battalion
-    {
-        /// <summary>Индекс в rules.units: 0 — пехота, 1 — броня.</summary>
-        public byte Type;
-        public byte Alive;
         /// <summary>Численность 0..10 000 bp.</summary>
         public short Strength_bp;
+        /// <summary>Организация 0..10 000 bp.</summary>
+        public short Org_bp;
+        /// <summary>1 — выдохлась: не наступает, пока организация не восстановится до resumeOrg_bp.</summary>
+        public byte Exhausted;
     }
 
+    /// <summary>Типы батальонов: индексы rules.units.</summary>
     public static class UnitTypes
     {
         public const byte Infantry = 0;
         public const byte Armor = 1;
     }
 
+    /// <summary>Типы дивизий: индексы rules.divisions.</summary>
+    public static class DivisionTypes
+    {
+        public const byte Infantry = 0;
+        public const byte Armor = 1;
+    }
+
+    /// <summary>Приказ стороны фронта (FrontOrder).</summary>
     public static class Orders
     {
         public const byte Defend = 0;
@@ -134,8 +138,8 @@ namespace BattlePix.Core
         NativeArray<NationState> _nations;
 
         // Массивы правил. В мире Фундамента (без правил) у них нулевая длина.
-        NativeArray<Formation> _formations;
-        NativeArray<Battalion> _battalions;
+        NativeArray<Division> _divisions;
+        NativeArray<byte> _frontOrder;
         NativeArray<int> _frontLen;
         NativeArray<int> _frontTerrainLen;
         NativeArray<int> _sidePow;
@@ -153,8 +157,7 @@ namespace BattlePix.Core
         /// <summary>Правила партии. null — мир Фундамента.</summary>
         public Rules Rules { get; }
         public bool HasRules => Rules != null;
-        public int MaxFormationsPerNation { get; }
-        public int MaxBattalions { get; }
+        public int MaxDivisionsPerNation { get; }
         /// <summary>Число пикселей суши после генерации.</summary>
         public int TotalLand { get; internal set; }
         /// <summary>Победитель, 0 — нет.</summary>
@@ -175,7 +178,7 @@ namespace BattlePix.Core
         {
         }
 
-        /// <summary>Мир с правилами (rules != null): массивы фронта и соединений.</summary>
+        /// <summary>Мир с правилами (rules != null): массивы фронта и дивизий.</summary>
         public World(int width, int height, int nationCount, ulong seed, Rules rules)
         {
             if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
@@ -194,13 +197,12 @@ namespace BattlePix.Core
             for (int i = 0; i < nationCount; i++)
                 _nations[i] = new NationState { Id = (byte)(i + 1), Alive = 1, Capital = -1, DiedAtTick = -1 };
 
-            MaxFormationsPerNation = rules != null ? rules.Formations.MaxFormationsPerNation : 0;
-            MaxBattalions = rules != null ? rules.Formations.MaxBattalions : 0;
+            MaxDivisionsPerNation = rules != null ? rules.Army.MaxDivisionsPerNation : 0;
             int nn = rules != null ? nationCount : 0;
             int pixels = rules != null ? n : 0;
             int pairs = rules != null ? (nn + 1) * (nn + 1) : 0;
-            _formations = new NativeArray<Formation>(nn * MaxFormationsPerNation, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-            _battalions = new NativeArray<Battalion>(nn * MaxFormationsPerNation * MaxBattalions, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _divisions = new NativeArray<Division>(nn * MaxDivisionsPerNation, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _frontOrder = new NativeArray<byte>(nn * nn, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _frontLen = new NativeArray<int>(pairs, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _frontTerrainLen = new NativeArray<int>(pairs * TerrainKinds, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _sidePow = new NativeArray<int>(pairs * TerrainKinds * 2, Allocator.Persistent, NativeArrayOptions.ClearMemory);
@@ -221,8 +223,9 @@ namespace BattlePix.Core
         /// <summary>enum Biome на пиксель, для картинки. Не меняется.</summary>
         public NativeArray<byte>.ReadOnly Biome => _biome.AsReadOnly();
         public NativeArray<NationState>.ReadOnly Nations => _nations.AsReadOnly();
-        public NativeArray<Formation>.ReadOnly Formations => _formations.AsReadOnly();
-        public NativeArray<Battalion>.ReadOnly Battalions => _battalions.AsReadOnly();
+        public NativeArray<Division>.ReadOnly Divisions => _divisions.AsReadOnly();
+        /// <summary>Приказ стороны a на фронте с d: [(a − 1) × N + (d − 1)], 0 оборона / 1 наступление. Хранится и без фронта.</summary>
+        public NativeArray<byte>.ReadOnly FrontOrder => _frontOrder.AsReadOnly();
         public NativeArray<int>.ReadOnly FrontLen => _frontLen.AsReadOnly();
         /// <summary>Рёбра фронта [a, d] по рельефу пикселя d: [(a × (N + 1) + d) × 3 + tr]. Производное, считается с FrontLen.</summary>
         public NativeArray<int>.ReadOnly FrontTerrainLen => _frontTerrainLen.AsReadOnly();
@@ -243,8 +246,8 @@ namespace BattlePix.Core
         internal ref NativeArray<byte> ElevationRW => ref _elevation;
         internal ref NativeArray<byte> BiomeRW => ref _biome;
         internal ref NativeArray<NationState> NationsRW => ref _nations;
-        internal ref NativeArray<Formation> FormationsRW => ref _formations;
-        internal ref NativeArray<Battalion> BattalionsRW => ref _battalions;
+        internal ref NativeArray<Division> DivisionsRW => ref _divisions;
+        internal ref NativeArray<byte> FrontOrderRW => ref _frontOrder;
         internal ref NativeArray<int> FrontLenRW => ref _frontLen;
         internal ref NativeArray<int> FrontTerrainLenRW => ref _frontTerrainLen;
         internal ref NativeArray<int> SidePowRW => ref _sidePow;
@@ -294,12 +297,28 @@ namespace BattlePix.Core
             return sum;
         }
 
-        public int FormationSlot(byte owner, int k) => (owner - 1) * MaxFormationsPerNation + k;
-        public Formation FormationAt(int slot) => _formations[slot];
-        public Battalion BattalionAt(int slot) => _battalions[slot];
+        public int DivisionSlot(byte owner, int k) => (owner - 1) * MaxDivisionsPerNation + k;
+        public Division DivisionAt(int slot) => _divisions[slot];
 
-        /// <summary>Соединение на месте на фронте (не в пути, не в тылу).</summary>
-        public bool OnFront(in Formation f) => f.Alive != 0 && f.Front != 0 && f.ArriveTick <= Tick;
+        /// <summary>Приказ стороны a на фронте с d. Вне диапазона — оборона.</summary>
+        public byte FrontOrderOf(int a, int d)
+        {
+            int n = NationCount;
+            if (a < 1 || a > n || d < 1 || d > n) return Orders.Defend;
+            return _frontOrder[(a - 1) * n + (d - 1)];
+        }
+
+        /// <summary>Дивизия готова, стоит на фронте и не в пути.</summary>
+        public bool OnFront(in Division v) => v.Alive != 0 && v.Front != 0 && v.ReadyTick <= Tick && v.ArriveTick <= Tick;
+
+        /// <summary>На фронте, приказ своей стороны — наступление, и не выдохлась.</summary>
+        public bool Attacking(in Division v) => OnFront(v) && v.Exhausted == 0 && FrontOrderOf(v.Owner, v.Front) == Orders.Attack;
+
+        /// <summary>Дивизия ещё готовится.</summary>
+        public bool Training(in Division v) => v.Alive != 0 && v.ReadyTick > Tick;
+
+        /// <summary>Назначена на фронт, но ещё не на месте (включая готовящуюся, назначенную заранее).</summary>
+        public bool InTransit(in Division v) => v.Alive != 0 && v.Front != 0 && !OnFront(v);
 
         /// <summary>Сколько пикселей d перешло к a минус обратно за последние 10 с. Положительное — a наступает.</summary>
         public int NetFlips10s(int a, int d)
@@ -346,8 +365,8 @@ namespace BattlePix.Core
             if (_elevation.IsCreated) _elevation.Dispose();
             if (_biome.IsCreated) _biome.Dispose();
             if (_nations.IsCreated) _nations.Dispose();
-            if (_formations.IsCreated) _formations.Dispose();
-            if (_battalions.IsCreated) _battalions.Dispose();
+            if (_divisions.IsCreated) _divisions.Dispose();
+            if (_frontOrder.IsCreated) _frontOrder.Dispose();
             if (_frontLen.IsCreated) _frontLen.Dispose();
             if (_frontTerrainLen.IsCreated) _frontTerrainLen.Dispose();
             if (_sidePow.IsCreated) _sidePow.Dispose();

@@ -74,14 +74,15 @@ namespace BattlePix.Editor
                         res.Accepted[c.Type] = k + 1;
                         if (tick < 600 * tps) res.DecisionsFirst10Min++;
                         string note = "";
-                        if (c.Type == CommandType.RecruitUnit && c.A >= 0)
+                        if (c.Type == CommandType.RecruitDivision)
                         {
-                            var f = w.FormationAt(w.FormationSlot(h, c.A));
-                            if (f.Front != 0 && w.FrontLength(h, f.Front) > 0)
+                            // Набор под рельеф (01c §7): по фронту наступления — первому существующему фронту с приказом «наступление».
+                            int front = AttackFront(w, h);
+                            if (front != 0)
                             {
-                                int plain = AiSystem.PlainShare(w, h, f.Front);
-                                if (c.B == UnitTypes.Armor && plain >= 6000) { res.ArmorOnPlains++; note = $" (броня, равнина фронта {plain / 100}%)"; }
-                                if (c.B == UnitTypes.Infantry && plain <= 4000) { res.InfantryOffPlains++; note = $" (пехота, равнина фронта {plain / 100}%)"; }
+                                int plain = AiSystem.PlainShare(w, h, front);
+                                if (c.A == DivisionTypes.Armor && plain >= 6000) { res.ArmorOnPlains++; note = $" (танковая, равнина фронта наступления {plain / 100}%)"; }
+                                if (c.A == DivisionTypes.Infantry && plain <= 4000) { res.InfantryOffPlains++; note = $" (пехотная, равнина фронта наступления {plain / 100}%)"; }
                             }
                         }
                         res.Timeline.Add(string.Format(CultureInfo.InvariantCulture, "{0:0.0} мин — {1} {2}, {3}{4}",
@@ -104,7 +105,14 @@ namespace BattlePix.Editor
             res.FocusEpisodes.Add(string.Format(CultureInfo.InvariantCulture, "{0:0.0}–{1:0.0} мин", from / (60.0 * tps), to / (60.0 * tps)));
         }
 
-        static string Name(CommandType t) => t == CommandType.RecruitUnit ? "набор" : t == CommandType.AssignFormation ? "назначение" : "приказ";
+        static int AttackFront(World w, byte h)
+        {
+            for (int d = 1; d <= w.NationCount; d++)
+                if (d != h && w.FrontLength(h, d) > 0 && w.Nation((byte)d).Alive != 0 && w.FrontOrderOf(h, d) == Orders.Attack) return d;
+            return 0;
+        }
+
+        static string Name(CommandType t) => t == CommandType.RecruitDivision ? "набор" : t == CommandType.AssignDivision ? "назначение" : "приказ";
 
         static string ToMarkdown(Result r, string file)
         {
@@ -114,11 +122,11 @@ namespace BattlePix.Editor
             sb.AppendLine();
             sb.AppendLine($"- Человек: нация {r.Human}");
             sb.AppendLine(string.Format(inv, "- Исход: {0}, минута {1:0.0}", r.Outcome, r.Minute));
-            sb.AppendLine("- Принятые команды: " + string.Join(", ", new[] { CommandType.RecruitUnit, CommandType.AssignFormation, CommandType.SetOrder }
+            sb.AppendLine("- Принятые команды: " + string.Join(", ", new[] { CommandType.RecruitDivision, CommandType.AssignDivision, CommandType.SetFrontOrder }
                 .Select(t => $"{Name(t)} {(r.Accepted.TryGetValue(t, out var k) ? k : 0)}")));
             sb.AppendLine($"- Решений за первые 10 минут: {r.DecisionsFirst10Min} (цель ≥ 10: {(r.DecisionsFirst10Min >= 10 ? "ок" : "провал")})");
             sb.AppendLine($"- Фокус-эпизоды (≥ 30 с): {r.FocusEpisodes.Count}" + (r.FocusEpisodes.Count > 0 ? " — " + string.Join(", ", r.FocusEpisodes) : ""));
-            sb.AppendLine($"- Состав под рельеф: броня на равнине {r.ArmorOnPlains}, пехота вне равнины {r.InfantryOffPlains}");
+            sb.AppendLine($"- Набор под рельеф: танковых при равнине ≥ 60% {r.ArmorOnPlains}, пехотных при равнине ≤ 40% {r.InfantryOffPlains}");
             sb.AppendLine($"- Метрика ворот 1 (≥ 1 фокус-эпизод или набор под рельеф): {(r.Gate ? "ок" : "провал")}");
             sb.AppendLine();
             sb.AppendLine("## Решения");

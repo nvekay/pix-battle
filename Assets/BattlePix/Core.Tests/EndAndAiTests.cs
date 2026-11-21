@@ -101,7 +101,7 @@ namespace BattlePix.Core.Tests
         }
     }
 
-    /// <summary>ИИ соединений (спека 01b §5.8).</summary>
+    /// <summary>ИИ дивизий (спека 01c §4.8).</summary>
     public class AiTests
     {
         [Test]
@@ -113,13 +113,13 @@ namespace BattlePix.Core.Tests
             {
                 while (!sim.World.IsOver)
                 {
-                    if (sim.World.Tick == 100) sim.EnqueueFromUi(CommandType.RecruitUnit, 1, 0, UnitTypes.Infantry);
+                    if (sim.World.Tick == 100) sim.EnqueueFromUi(CommandType.RecruitDivision, 1, DivisionTypes.Infantry, 0);
                     sim.Step();
                     foreach (var c in sim.AppliedLastTick) if (c.Nation != 1) ai++;
                 }
                 Assert.AreEqual(1, sim.CommandLog.Count, "AI commands are not in the log");
                 for (byte id = 2; id <= 8; id++)
-                    Assert.Greater(sim.World.Nation(id).RecruitedInf + sim.World.Nation(id).RecruitedArmor, 0, $"AI {id} never recruited");
+                    Assert.Greater(sim.World.Nation(id).RecruitedInfDiv + sim.World.Nation(id).RecruitedArmorDiv, 0, $"AI {id} never recruited");
                 replay = ReplayFile.FromJson(ReplayFile.Capture(sim, "t", 0).ToJson());
             }
             Assert.Greater(ai, 0);
@@ -144,17 +144,14 @@ namespace BattlePix.Core.Tests
                     }
                     if (!attacked)
                         for (byte id = 1; id <= 8 && !attacked; id++)
-                            for (int f = 0; f < sim.World.MaxFormationsPerNation; f++)
-                            {
-                                var form = sim.World.FormationAt(sim.World.FormationSlot(id, f));
-                                if (sim.World.OnFront(form) && form.Order == Orders.Attack) { attacked = true; break; }
-                            }
+                            for (int k = 0; k < sim.World.MaxDivisionsPerNation; k++)
+                                if (sim.World.Attacking(sim.World.DivisionAt(sim.World.DivisionSlot(id, k)))) { attacked = true; break; }
                 }
                 TestContext.WriteLine("AI commands: " + string.Join(", ", counts));
-                Assert.Greater(counts.TryGetValue(CommandType.RecruitUnit, out var r) ? r : 0, 0);
-                Assert.Greater(counts.TryGetValue(CommandType.AssignFormation, out var a) ? a : 0, 0);
-                Assert.Greater(counts.TryGetValue(CommandType.SetOrder, out var o) ? o : 0, 0);
-                Assert.IsTrue(attacked, "some formation attacked on a front");
+                Assert.Greater(counts.TryGetValue(CommandType.RecruitDivision, out var r) ? r : 0, 0);
+                Assert.Greater(counts.TryGetValue(CommandType.AssignDivision, out var a) ? a : 0, 0);
+                Assert.Greater(counts.TryGetValue(CommandType.SetFrontOrder, out var o) ? o : 0, 0);
+                Assert.IsTrue(attacked, "some division attacked on a front");
             }
         }
 
