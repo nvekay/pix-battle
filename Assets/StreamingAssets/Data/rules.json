@@ -1,5 +1,5 @@
 {
-  "format": 3,
+  "format": 4,
   "mapgen": {
     "octaves": 4,
     "baseCellPx": 64,
@@ -85,5 +85,20 @@
   "end": {
     "victoryShare_bp": 4000,
     "timeoutTicks": 27000
+  },
+  "war": {
+    "claimRadius": 18,
+    "claimMaxDepth": 30,
+    "claimMinPixels": 300,
+    "claimHold_bp": 7000,
+    "repOccupy_bp": 1000,
+    "defenseWin_bp": 1000,
+    "goalHoldSeconds": 20,
+    "tribute_bp": 5000,
+    "tributeTicks": 3000,
+    "truceTicks": 3000,
+    "maxWarTicks": 4800,
+    "offerTicks": 100,
+    "offerCooldownTicks": 600
   }
 }

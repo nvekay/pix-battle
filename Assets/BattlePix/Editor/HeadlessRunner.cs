@@ -99,8 +99,19 @@ namespace BattlePix.Editor
                     {
                         // Случайные игровые команды человека: часть заведомо отклонится, это тоже проверка реплея.
                         int slot = rng.NextInt(4); // одна из первых четырёх дивизий
-                        switch (rng.NextInt(4))
+                        int enemy = 1 + rng.NextInt(rules.NationCount);
+                        switch (rng.NextInt(7))
                         {
+                            case 4:
+                            {
+                                // 02b: война с репарациями или претензиями (центр предлагает ядро, если сосед есть).
+                                int center = human != 0 && rng.NextInt(2) == 0 && enemy != human
+                                    ? WarSystem.SuggestClaimCenter(sim.World, human, (byte)enemy) : -1;
+                                sim.EnqueueFromUi(CommandType.DeclareWar, human, enemy, center >= 0 ? center + 1 : 0);
+                                break;
+                            }
+                            case 5: sim.EnqueueFromUi(CommandType.ProposePeace, human, enemy, 0); break;
+                            case 6: sim.EnqueueFromUi(CommandType.AnswerPeace, human, enemy, rng.NextInt(2)); break;
                             case 0: sim.EnqueueFromUi(CommandType.RecruitDivision, human, rng.NextInt(2), 0); break;
                             case 1: sim.EnqueueFromUi(CommandType.AssignDivision, human, slot, rng.NextInt(rules.NationCount + 1)); break;
                             case 2:
@@ -206,7 +217,7 @@ namespace BattlePix.Editor
                 results.Add(r);
                 Log(r.Crashed
                     ? $"seed {seed}: CRASH at tick {r.Ticks}: {r.Error}"
-                    : $"seed {seed}: {r.EndReason} winner {r.Winner} at {r.EndMinutes:0.0} min, {r.MsPerTickMean:0.0000} ms/tick (p99 {r.MsPerTickP99:0.0000})");
+                    : $"seed {seed}: {r.EndReason} winner {r.Winner} at {r.EndMinutes:0.0} min, {r.MsPerTickMean:0.0000} ms/tick (p99 {r.MsPerTickP99:0.0000}, peace max {r.PeaceTickMaxMs:0.000})");
             }
             return results;
         }
@@ -243,11 +254,20 @@ namespace BattlePix.Editor
                 {
                     if (w.Tick == crashAtTick)
                         throw new InvalidOperationException($"artificial crash (-crashSeed {seed}) at tick {crashAtTick}");
+                    int eventsBefore = w.WarEvents.Count;
                     sw.Restart();
                     sim.Step();
                     sw.Stop();
                     // Тик с контрольным хешем в бюджет не входит.
                     if (!sim.LastStepWroteCheckpoint) perTick.Add(sw.Elapsed.TotalMilliseconds);
+                    // Тик мира (02b §6): проход по карте и карманы — максимум отдельной строкой.
+                    for (int e = eventsBefore; e < w.WarEvents.Count; e++)
+                        if (w.WarEvents[e].Kind == WarEventKind.Peace && w.WarEvents[e].Tick == w.Tick - 1)
+                        {
+                            double ms = sw.Elapsed.TotalMilliseconds;
+                            if (ms > r.PeaceTickMaxMs) r.PeaceTickMaxMs = ms;
+                            break;
+                        }
 
                     if (r.FirstContactTick < 0 && AnyContact(w)) r.FirstContactTick = w.Tick;
                     for (int i = 0; i < nationCount; i++)
@@ -642,6 +662,8 @@ namespace BattlePix.Editor
         public double TimeMs;
         public double MsPerTickMean;
         public double MsPerTickP99;
+        /// <summary>Самый долгий тик, в котором заключён мир (02b §6), мс; 0 — мира не было.</summary>
+        public double PeaceTickMaxMs;
         /// <summary>Индекс 0 — ничья земля и вода, дальше по id наций.</summary>
         public int[] PixelsByNation;
         public bool Crashed;
@@ -730,6 +752,14 @@ namespace BattlePix.Editor
                 Target = "≤ 0,4 / ≤ 2 мс",
                 Actual = string.Format(inv, "{0:0.000} / {1:0.000} мс", mean, p99),
                 Ok = mean <= MeanTickMs && p99 <= P99TickMs,
+            });
+            double peaceMax = results.Where(r => !r.Crashed).Select(r => r.PeaceTickMaxMs).DefaultIfEmpty(0).Max();
+            rows.Add(new GateRow
+            {
+                Name = "Максимум тика мира (02b §6)",
+                Target = "≤ 2 мс",
+                Actual = string.Format(inv, "{0:0.000} мс", peaceMax),
+                Ok = peaceMax <= P99TickMs,
             });
             return rows;
         }

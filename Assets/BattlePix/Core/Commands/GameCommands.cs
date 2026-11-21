@@ -1,13 +1,14 @@
 namespace BattlePix.Core
 {
     /// <summary>
-    /// Валидация и применение игровых команд (спека 01c §3.3). Одни и те же для человека и ИИ.
+    /// Валидация и применение игровых команд (спека 01c §3.3, 02b §3.3). Одни и те же для человека и ИИ.
     /// Валидация детерминированная и идёт в момент применения: если на две покупки не хватает золота, вторая отклоняется.
     /// </summary>
     public static class GameCommands
     {
         public static bool IsGameCommand(CommandType t) =>
-            t == CommandType.RecruitDivision || t == CommandType.AssignDivision || t == CommandType.SetFrontOrder;
+            t == CommandType.RecruitDivision || t == CommandType.AssignDivision || t == CommandType.SetFrontOrder
+            || t == CommandType.DeclareWar || t == CommandType.ProposePeace || t == CommandType.AnswerPeace;
 
         public static bool IsObsolete(CommandType t) =>
             t == CommandType.Recruit || t == CommandType.BuildFort || t == CommandType.Strike
@@ -26,6 +27,12 @@ namespace BattlePix.Core
                     return ValidateAssign(w, c.Nation, c.A, c.B);
                 case CommandType.SetFrontOrder:
                     return ValidateFrontOrder(w, c.Nation, c.A, c.B);
+                case CommandType.DeclareWar:
+                    return WarSystem.ValidateDeclare(w, c.Nation, c.A, c.B);
+                case CommandType.ProposePeace:
+                    return WarSystem.ValidatePropose(w, c.Nation, c.A);
+                case CommandType.AnswerPeace:
+                    return WarSystem.ValidateAnswer(w, c.Nation, c.A, c.B);
                 default:
                     return RejectReason.UnknownType;
             }
@@ -102,6 +109,15 @@ namespace BattlePix.Core
                     w.FrontOrderRW[(c.Nation - 1) * n + (c.A - 1)] = (byte)c.B;
                     break;
                 }
+                case CommandType.DeclareWar:
+                    WarSystem.ApplyDeclare(w, c.Nation, c.A, c.B);
+                    break;
+                case CommandType.ProposePeace:
+                    WarSystem.ApplyPropose(w, c.Nation, c.A);
+                    break;
+                case CommandType.AnswerPeace:
+                    WarSystem.ApplyAnswer(w, c.Nation, c.A, c.B);
+                    break;
             }
         }
     }

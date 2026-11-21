@@ -122,12 +122,15 @@ namespace BattlePix.Core
                 Added = _added,
                 InFrontier = world.InFrontierRW,
                 Owner = world.OwnerRW,
+                Core = world.CoreRW,
+                OccupiedLen = world.OccupiedLenRW,
                 Terrain = world.TerrainRW,
                 EdgeMask = world.EdgeMaskRW,
                 Nations = world.NationsRW,
                 Flips = flips,
                 FlipBase = sec * nn,
                 N = n,
+                Stride = n + 1,
                 W = w,
                 Captured = _captured,
                 Dirty = _dirty,
@@ -198,7 +201,7 @@ namespace BattlePix.Core
 
         /// <summary>
         /// Таблицы для фазы A (01b §5.2): живые нации и шанс захвата для каждой пары, флага «столица d рядом» и рельефа
-        /// пикселя-цели. Сила сторон уже в SidePow (DivisionSystem.FillPow этого тика). att = 0 — шанс 0.
+        /// пикселя-цели. Сила сторон уже в SidePow (DivisionSystem.FillPow этого тика). att = 0 — шанс 0. Пара не в войне — шанс 0.
         /// Ничья земля: expandChance от любого соседа-нации, рельеф не влияет.
         /// </summary>
         void FillTables(World world, int tick)
@@ -219,7 +222,8 @@ namespace BattlePix.Core
                     for (int f = 0; f < ChanceSlots; f++) _chance[baseIdx + f] = fr.ExpandChance_bp;
                     continue;
                 }
-                if (world.FrontLength(a, d) <= 0) continue;
+                // 02b §4.1: между нациями шанс только при войне. Расползание по ничьей (d = 0) — как раньше.
+                if (world.FrontLength(a, d) <= 0 || !world.AtWar(a, d)) continue;
                 for (int cap = 0; cap < 2; cap++)
                 {
                     int defMult = cap != 0 ? fr.CapitalMult_bp : 10000;
@@ -243,16 +247,22 @@ namespace BattlePix.Core
             return _chance[(a * (world.NationCount + 1) + d) * ChanceSlots + cap * World.TerrainKinds + tr];
         }
 
-        /// <summary>Гибель нации: земля ничья, соединения сняты, армия и золото обнулены.</summary>
+        /// <summary>
+        /// Гибель нации (01c §4.5, 02b §4.5): её земля ничья (Owner = Core = 0), занятое ею у других закрепляется за держателями
+        /// (Core = Owner), дивизии сняты, армия и золото обнулены, войны с ней закрыты, дань снята.
+        /// </summary>
         internal static void KillNation(World world, byte d)
         {
             new KillNationJob
             {
                 Owner = world.OwnerRW,
+                Core = world.CoreRW,
                 CapitalCover = world.CapitalCoverRW,
                 Nation = d,
             }.Run();
             world.MarkAllDirty();
+            WarSystem.RecountOccupied(world);
+            WarSystem.OnNationDied(world, d);
 
             DivisionSystem.RemoveAll(world, d);
 
@@ -415,11 +425,14 @@ namespace BattlePix.Core
         public NativeList<int> Added;
         public NativeArray<byte> InFrontier;
         public NativeArray<byte> Owner;
+        /// <summary>Исконный владелец (02b §3.1): захват на войне его не меняет, расползание по ничьей ставит Core = a.</summary>
+        public NativeArray<byte> Core;
+        public NativeArray<int> OccupiedLen;
         [ReadOnly] public NativeArray<byte> Terrain;
         [ReadOnly] public NativeArray<byte> EdgeMask;
         public NativeArray<NationState> Nations;
         public NativeArray<short> Flips;
-        public int FlipBase, N, W;
+        public int FlipBase, N, Stride, W;
         public NativeArray<byte> Captured;
         public NativeArray<int> Dirty;
 
@@ -432,6 +445,10 @@ namespace BattlePix.Core
                 int t = Frontier[i];
                 byte d = Owner[t];
                 Owner[t] = a;
+                byte c = Core[t];
+                if (c != 0 && c != d) OccupiedLen[d * Stride + c]--;
+                if (c != 0 && c != a) OccupiedLen[a * Stride + c]++;
+                if (d == 0) Core[t] = a;
 
                 var na = Nations[a - 1];
                 na.Pixels++;
@@ -540,11 +557,12 @@ namespace BattlePix.Core
         }
     }
 
-    /// <summary>Гибель нации: все её пиксели ничьи, её бит CapitalCover снят.</summary>
+    /// <summary>Гибель нации: все её пиксели ничьи (Owner = Core = 0), её исконная земля у других — за держателями, бит CapitalCover снят.</summary>
     [BurstCompile(CompileSynchronously = true)]
     public struct KillNationJob : IJob
     {
         public NativeArray<byte> Owner;
+        public NativeArray<byte> Core;
         public NativeArray<ushort> CapitalCover;
         public byte Nation;
 
@@ -553,7 +571,12 @@ namespace BattlePix.Core
             ushort mask = (ushort)~(1 << (Nation - 1));
             for (int p = 0; p < Owner.Length; p++)
             {
-                if (Owner[p] == Nation) Owner[p] = 0;
+                if (Owner[p] == Nation)
+                {
+                    Owner[p] = 0;
+                    Core[p] = 0;
+                }
+                else if (Core[p] == Nation) Core[p] = Owner[p];
                 CapitalCover[p] = (ushort)(CapitalCover[p] & mask);
             }
         }

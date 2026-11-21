@@ -22,6 +22,8 @@ namespace BattlePix.Core
         public DivisionRules[] Divisions { get; internal set; }
         public ArmyRules Army { get; private set; }
         public EndRules End { get; private set; }
+        /// <summary>Война и мир (спека 02b §3.5).</summary>
+        public WarRules War { get; private set; }
         public AiFile Ai { get; private set; }
 
         readonly string[] _profileNameByNation;
@@ -38,6 +40,7 @@ namespace BattlePix.Core
             Divisions = file.Divisions;
             Army = file.Army;
             End = file.End;
+            War = file.War;
             Ai = ai;
             _profileNameByNation = new string[nationCount];
             _profileByNation = new AiProfile[nationCount];
@@ -145,7 +148,7 @@ namespace BattlePix.Core
         /// <summary>Глубокая копия через JSON: тесты и абляции меняют копию, не общий объект.</summary>
         public Rules Clone()
         {
-            var file = new RulesFile { MapGen = MapGen, Front = Front, Economy = Economy, Terrain = Terrain, Units = Units, Divisions = Divisions, Army = Army, End = End };
+            var file = new RulesFile { MapGen = MapGen, Front = Front, Economy = Economy, Terrain = Terrain, Units = Units, Divisions = Divisions, Army = Army, End = End, War = War };
             var fileCopy = JsonConvert.DeserializeObject<RulesFile>(JsonConvert.SerializeObject(file), Strict);
             var aiCopy = JsonConvert.DeserializeObject<AiFile>(JsonConvert.SerializeObject(Ai), Strict);
             var r = new Rules(NationCount, fileCopy, aiCopy);
@@ -204,8 +207,8 @@ namespace BattlePix.Core
 
     public sealed class RulesFile
     {
-        /// <summary>3 — дивизии (спека 01c): divisions и army вместо formations, без battalionCap. 2 — соединения 01b.</summary>
-        public const int SupportedFormat = 3;
+        /// <summary>4 — война по объявлению (спека 02b): раздел war. 3 — дивизии (01c). 2 — соединения 01b.</summary>
+        public const int SupportedFormat = 4;
         public const int MaxUnitTypes = 8;
         public const int MaxDivisionTypes = 8;
 
@@ -218,12 +221,14 @@ namespace BattlePix.Core
         [JsonProperty("divisions")] public DivisionRules[] Divisions = DivisionRules.CreateDefault();
         [JsonProperty("army")] public ArmyRules Army = new ArmyRules();
         [JsonProperty("end")] public EndRules End = new EndRules();
+        [JsonProperty("war")] public WarRules War = new WarRules();
 
         public void Validate()
         {
             Rules.Require(Format == SupportedFormat, "rules", $"format {Format} is not supported, expected {SupportedFormat}");
-            Rules.Require(MapGen != null && Front != null && Economy != null && Terrain != null && Units != null && Divisions != null && Army != null && End != null,
-                "rules", "all sections are required");
+            Rules.Require(MapGen != null && Front != null && Economy != null && Terrain != null && Units != null && Divisions != null && Army != null && End != null
+                          && War != null, "rules", "all sections are required");
+            War.Validate();
             MapGen.Validate();
             Front.Validate();
             Economy.Validate();
@@ -501,10 +506,41 @@ namespace BattlePix.Core
         }
     }
 
+    /// <summary>Война и мир (спека 02b §3.5). Время — в тиках, доли — в bp.</summary>
+    public sealed class WarRules
+    {
+        [JsonProperty("claimRadius")] public int ClaimRadius = 18;
+        [JsonProperty("claimMaxDepth")] public int ClaimMaxDepth = 30;
+        [JsonProperty("claimMinPixels")] public int ClaimMinPixels = 300;
+        [JsonProperty("claimHold_bp")] public int ClaimHold_bp = 7000;
+        [JsonProperty("repOccupy_bp")] public int RepOccupy_bp = 1000;
+        [JsonProperty("defenseWin_bp")] public int DefenseWin_bp = 1000;
+        [JsonProperty("goalHoldSeconds")] public int GoalHoldSeconds = 20;
+        [JsonProperty("tribute_bp")] public int Tribute_bp = 5000;
+        [JsonProperty("tributeTicks")] public int TributeTicks = 3000;
+        [JsonProperty("truceTicks")] public int TruceTicks = 3000;
+        [JsonProperty("maxWarTicks")] public int MaxWarTicks = 4800;
+        [JsonProperty("offerTicks")] public int OfferTicks = 100;
+        [JsonProperty("offerCooldownTicks")] public int OfferCooldownTicks = 600;
+
+        internal void Validate()
+        {
+            const string f = "rules.war";
+            Rules.Require(ClaimRadius >= 1 && ClaimRadius <= 64, f, "claimRadius must be in 1..64");
+            Rules.Require(ClaimMaxDepth >= 0, f, "claimMaxDepth must be >= 0");
+            Rules.Require(ClaimMinPixels >= 1, f, "claimMinPixels must be >= 1");
+            foreach (var v in new[] { ClaimHold_bp, RepOccupy_bp, DefenseWin_bp, Tribute_bp })
+                Rules.Require(v >= 1 && v <= 10000, f, "_bp values must be in 1..10000");
+            Rules.Require(GoalHoldSeconds >= 1 && GoalHoldSeconds <= 32000, f, "goalHoldSeconds must be in 1..32000");
+            Rules.Require(TributeTicks >= 0 && TruceTicks >= 0 && MaxWarTicks >= 1 && OfferTicks >= 1 && OfferCooldownTicks >= 0,
+                f, "durations must be >= 0 (maxWarTicks and offerTicks >= 1)");
+        }
+    }
+
     public sealed class AiFile
     {
-        /// <summary>3 — профили дивизий (спека 01c §4.8): без retreatStrength и attackStrength. 2 — соединения 01b.</summary>
-        public const int SupportedFormat = 3;
+        /// <summary>4 — война по объявлению (02b §8): declareRatio, idleWarTicks и др. 3 — профили дивизий (01c §4.8).</summary>
+        public const int SupportedFormat = 4;
 
         [JsonProperty("format")] public int Format = SupportedFormat;
         [JsonProperty("default")] public string Default = "base";
@@ -557,9 +593,23 @@ namespace BattlePix.Core
         [JsonProperty("leaderShare_bp")] public int LeaderShare_bp = 2500;
         [JsonProperty("leaderBonus_bp")] public int LeaderBonus_bp = 4000;
         [JsonProperty("noise_bp")] public int Noise_bp = 800;
+        /// <summary>Война (02b §8): объявляет при армии сильнее в declareRatio раз.</summary>
+        [JsonProperty("declareRatio_bp")] public int DeclareRatio_bp = 12000;
+        /// <summary>Столько тиков без своих войн — объявляет всё равно.</summary>
+        [JsonProperty("idleWarTicks")] public int IdleWarTicks = 1800;
+        /// <summary>Доля готовых дивизий у границы перед объявлением.</summary>
+        [JsonProperty("stageShare_bp")] public int StageShare_bp = 6000;
+        [JsonProperty("maxOwnWars")] public int MaxOwnWars = 1;
+        /// <summary>Вероятность выбрать претензии, а не репарации.</summary>
+        [JsonProperty("claimsChance_bp")] public int ClaimsChance_bp = 6000;
+        /// <summary>Белый мир не раньше стольких тиков войны.</summary>
+        [JsonProperty("peaceAfterTicks")] public int PeaceAfterTicks = 1200;
 
         internal void Validate(string name)
         {
+            Rules.Require(DeclareRatio_bp >= 0 && IdleWarTicks >= 0 && StageShare_bp >= 0 && StageShare_bp <= 10000 && MaxOwnWars >= 0
+                          && ClaimsChance_bp >= 0 && ClaimsChance_bp <= 10000 && PeaceAfterTicks >= 0,
+                "ai.profiles." + name, "war values out of range");
             string f = "ai.profiles." + name;
             Rules.Require(ThinkIntervalTicks >= 1, f, "thinkIntervalTicks must be >= 1");
             Rules.Require(RearStrength_bp >= 0 && DeployStrength_bp >= 0,

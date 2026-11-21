@@ -26,6 +26,12 @@ namespace BattlePix.Core
         AssignDivision = 9,
         /// <summary>Приказ своей стороне фронта. A = id противника, B = 0 оборона / 1 наступление.</summary>
         SetFrontOrder = 10,
+        /// <summary>Объявить войну (02b §3.3). A = id противника, B = 0 — репарации; B = 1 + пиксель — претензии на район с центром в пикселе B − 1.</summary>
+        DeclareWar = 11,
+        /// <summary>Предложить мир. A = id противника. Своя цель выполнена — мир на своих условиях; есть предложение противника — принятие.</summary>
+        ProposePeace = 12,
+        /// <summary>Ответить на предложение белого мира. A = id того, кто предложил; B = 1 принять / 0 отказать.</summary>
+        AnswerPeace = 13,
         // Значения только дописываются.
     }
 
@@ -92,6 +98,16 @@ namespace BattlePix.Core
         /// <summary>У нации уже maxDivisionsPerNation дивизий.</summary>
         DivisionLimit = 23,
         DivisionTypeInvalid = 24,
+        /// <summary>Пара не в войне (или мир по ней уже поставлен в этом тике).</summary>
+        NotAtWar = 25,
+        AlreadyAtWar = 26,
+        TruceActive = 27,
+        /// <summary>Центр района не на их исконной земле, далеко от границы, район задевает их столицу или в нём мало их суши.</summary>
+        ClaimInvalid = 28,
+        /// <summary>Нет живого предложения белого мира от этой нации.</summary>
+        NoOffer = 29,
+        /// <summary>Своё предложение белого мира — не чаще offerCooldownTicks.</summary>
+        PeaceCooldown = 30,
         // Значения только дописываются.
     }
 

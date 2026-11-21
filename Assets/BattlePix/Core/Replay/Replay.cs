@@ -22,8 +22,8 @@ namespace BattlePix.Core
     /// </summary>
     public sealed class ReplayFile
     {
-        /// <summary>4 — дивизии (спека 01c). 3 — соединения 01b, 2 — прототип с крепостями и ударом, 1 — этап 0.</summary>
-        public const int SupportedFormat = 4;
+        /// <summary>5 — война по объявлению (02b). 4 — дивизии (01c), 3 — соединения 01b, 2 — прототип с крепостями и ударом, 1 — этап 0.</summary>
+        public const int SupportedFormat = 5;
 
         [JsonProperty("format")] public int Format = SupportedFormat;
         [JsonProperty("build")] public string Build = "";
@@ -51,13 +51,16 @@ namespace BattlePix.Core
                     ?? throw new FormatException("replay: empty");
             if (r.Format == 1)
                 throw new UnsupportedReplayFormatException(1,
-                    "replay: format 1 is from stage 0 (Foundation): it has no rules and cannot be replayed, expected format 4");
+                    "replay: format 1 is from stage 0 (Foundation): it has no rules and cannot be replayed, expected format 5");
             if (r.Format == 2)
                 throw new UnsupportedReplayFormatException(2,
-                    "replay: format 2 is from before fronts and formations (forts and strikes): it cannot be replayed, expected format 4");
+                    "replay: format 2 is from before fronts and formations (forts and strikes): it cannot be replayed, expected format 5");
             if (r.Format == 3)
                 throw new UnsupportedReplayFormatException(3,
-                    "replay: format 3 is from before divisions (formations with HQ): it cannot be replayed, expected format 4");
+                    "replay: format 3 is from before divisions (formations with HQ): it cannot be replayed, expected format 5");
+            if (r.Format == 4)
+                throw new UnsupportedReplayFormatException(4,
+                    "replay: format 4 is from before declared war (contact meant war): it cannot be replayed, expected format 5");
             if (r.Format != SupportedFormat)
                 throw new UnsupportedReplayFormatException(r.Format,
                     $"replay: format {r.Format} is not supported, expected {SupportedFormat}");

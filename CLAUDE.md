@@ -22,9 +22,10 @@ Civ-лайт в реальном времени за одну нацию на п
 - UI пока только под ПК: мышь и клавиатура, подсказки по наведению разрешены. Тач (всё по тапу, цели ≥ 44×44 pt) — при мобильном порте.
 
 ## Где что
-- `Core/` — `Simulation` (тик; два конструктора: с правилами и старый для мира Фундамента), `World` (+ `FrontMath`; `Division`, `FrontOrder`), `DivisionSystem` (сила сторон, организация, потери, пополнение), `CommandQueue`, `Pcg32`/`RngStreams`, `StateHash` (`HashJob` + `HashManaged`), `ReplayFile`/`ReplayPlayer` (формат 4), `SimConfig`, `Rules` (DTO `rules.json` + `ai.json` + число наций из `nations.json`), `MapGen/MapGenerator` (континент и столицы).
-- Данные: `sim_config.json` (инфраструктура), `nations.json` (нации; ядро читает только id), `rules.json` (баланс; `units` — батальоны, из которых складываются `divisions`, `army` — переброска, потери, организация), `ai.json` (профили ИИ).
+- `Core/` — `Simulation` (тик; два конструктора: с правилами и старый для мира Фундамента), `World` (+ `FrontMath`; `Division`, `FrontOrder`; слой `Core`, `Wars`, `OccupiedLen`), `DivisionSystem` (сила сторон, организация, потери, пополнение), `WarSystem` (война и мир: цели, сроки, мир, карманы; журнал `World.WarEvents`), `CommandQueue`, `Pcg32`/`RngStreams`, `StateHash` (`HashJob` + `HashManaged`), `ReplayFile`/`ReplayPlayer` (формат 5), `SimConfig`, `Rules` (DTO `rules.json` + `ai.json` + число наций из `nations.json`), `MapGen/MapGenerator` (континент и столицы).
+- Данные: `sim_config.json` (инфраструктура), `nations.json` (нации; ядро читает только id), `rules.json` (баланс; `units` — батальоны, из которых складываются `divisions`, `army` — переброска, потери, организация, `war` — цели, сроки и дань), `ai.json` (профили ИИ).
 - Армия (спека 01c): дивизия — пехотная или танковая, назначается на фронт поштучно и бесплатно (`AssignDivision`), приказ отдаётся фронту (`SetFrontOrder`), набор — `RecruitDivision`. Команды 01b `RecruitUnit`/`AssignFormation`/`SetOrder` в мире с правилами — `Obsolete`.
+- Война (спека 02b): контакт — это граница, не война. Между нациями пиксели переходят только при войне (`DeclareWar` с целью «претензии на район» или «репарации»). Мир — `ProposePeace` (своя цель выполнена — на своих условиях, иначе белый) и `AnswerPeace`; через `maxWarTicks` белый мир сам; потом перемирие. `Core` — исконный владелец: занятое (`Owner ≠ Core`) закрепляется или возвращается миром.
 - Мир Фундамента (старый конструктор `Simulation`, `DebugPaint`, `DebugSetOwner`) живёт только ради тестов этапа 0. В мире с правилами `DebugSetOwner` отклоняется (`DebugOnly`).
 - `Core.Tests/` — EditMode NUnit, детекция утечек NativeArray включена с трассой.
 - `Game/` — `GameBootstrap` (адаптер, `TickClock`, панель), `MapView` (квад + `OwnerPalette.shader`), `GameData`.
@@ -37,7 +38,7 @@ Civ-лайт в реальном времени за одну нацию на п
 - 100 бот-партий: `Unity -batchmode -nographics -projectPath . -executeMethod BattlePix.Editor.HeadlessRunner.Run -seeds 1-100 -out Reports/run` (`-ticks` — страховочный лимит, по умолчанию 30 000; конец партии задают правила)
 - Баг = сид + реплей. Проверка: `... -executeMethod BattlePix.Editor.HeadlessRunner.Run -replay <файл>` (код 1 — расхождение, печатает первую разошедшуюся контрольную точку; код 2 — другие данные, `-ignoreDataHash` чтобы всё равно проиграть).
 - Детерминизм: `... -executeMethod BattlePix.Editor.HeadlessRunner.Run -determinism 42`
-- Синтетический реплей: `... -recordReplay Replays/x.json -seed 42 -commands 200 [-human 1]`. Реплеи форматов 1–3 (до дивизий) отклоняются с кодом 2. Искусственный крах для проверки отчёта: `-crashSeed N`.
+- Синтетический реплей: `... -recordReplay Replays/x.json -seed 42 -commands 200 [-human 1]`. Реплеи форматов 1–4 (до войны по объявлению) отклоняются с кодом 2. Искусственный крах для проверки отчёта: `-crashSeed N`.
 - Сцена: `Unity -batchmode -quit -projectPath . -executeMethod BattlePix.Editor.SceneBuilder.Build`
 - ПК-сборка: `... -executeMethod BattlePix.Editor.BuildScript.BuildWindows` → `Builds/Windows/BattlePix.exe`. Замер: `BattlePix.exe -screen-fullscreen 0 -bench 15 -benchSpeed 4` пишет fps в Player.log и сохраняет реплей, который должен проходить `-replay`.
 - Любое изменение ядра: тесты зелёные, `-determinism 42` проходит, бюджет тика в отчёте (≤ 0,25 мс) не вырос без причины. Цифры не подгонять.
@@ -46,4 +47,4 @@ Civ-лайт в реальном времени за одну нацию на п
 - Каждая механика: бриф → спека → реализация → 100 бот-партий → плейтест → вердикт.
 - Делай ровно то, что в спеке. Новое — только с ответом «что это вытесняет», иначе в бэклог.
 - Баланс меняется в данных и проверяется бот-прогоном, не на глаз.
-- Спеки лежат в `docs/specs/`. Текущий этап: 2 «Вертикальный срез», сейчас переделка армии — дивизии вместо соединений, `docs/specs/spec-01c-divisions.md` (бриф `docs/briefs/brief-07-divisions.md`); кусок 1 среза — `docs/specs/spec-02a-readable-map-ui.md` (брифы `docs/briefs/`, мокапы и их генератор `docs/art/`; план — `docs/plan.md`).
+- Спеки лежат в `docs/specs/`. Текущий этап: 2 «Вертикальный срез», сейчас кусок 2 — война по объявлению, цели войны и мир, `docs/specs/spec-02b-war-peace.md` (дельта к дивизиям `docs/specs/spec-01c-divisions.md`, бриф `docs/briefs/brief-07-divisions.md`); кусок 1 среза — `docs/specs/spec-02a-readable-map-ui.md` (брифы `docs/briefs/`, мокапы и их генератор `docs/art/`; план — `docs/plan.md`).

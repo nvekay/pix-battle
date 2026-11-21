@@ -54,6 +54,26 @@ namespace BattlePix.Core.Tests
         public static void Order(World w, byte a, byte d, byte order) => w.FrontOrderRW[(a - 1) * w.NationCount + (d - 1)] = order;
 
         /// <summary>
+        /// Война attacker → defender (02b): статус «война», цель goal, довоенная земля — текущие Pixels.
+        /// Тесты 1b/01c, где «контакт = война», ставят её явно.
+        /// </summary>
+        public static void War(World w, byte attacker, byte defender, byte goal = WarGoals.Reparations, int center = -1, int claimTotal = 0)
+        {
+            w.WarsRW[w.WarIndex(attacker, defender)] = new War
+            {
+                Status = WarStatus.War, Attacker = attacker, Goal = goal, ClaimCenter = center, ClaimTotal = claimTotal,
+                StartTick = w.Tick, PreWarAtt = w.NationsRW[attacker - 1].Pixels, PreWarDef = w.NationsRW[defender - 1].Pixels,
+            };
+        }
+
+        /// <summary>Core = Owner на всей карте и OccupiedLen с нуля (синтетические миры).</summary>
+        public static void CoreFromOwner(World w)
+        {
+            for (int p = 0; p < w.PixelCount; p++) w.CoreRW[p] = w.OwnerRW[p];
+            WarSystem.RecountOccupied(w);
+        }
+
+        /// <summary>
         /// Заменить типы дивизий на свои составы (по батальонам rules.units) и пересчитать таблицы.
         /// Нужно тестам 1b, где соединения были собраны из батальонов поштучно.
         /// </summary>
@@ -74,7 +94,7 @@ namespace BattlePix.Core.Tests
         }
 
         /// <summary>
-        /// Пример раздела 5 спеки 01c: карта 2×120, столбец 0 — Красные (1, равнина), столбец 1 — Синие (2):
+        /// Пример раздела 5 спеки 01c: карта 2×120, столбец 0 — Красные (1, равнина), столбец 1 — Синие (2), Красные объявили войну (02b):
         /// строки 0–71 равнина, 72–107 холмы, 108–119 горы. FrontLen[1,2] = 120, по рельефу синих 72 / 36 / 12.
         /// Красные: 2 танковые (k 0–1) + 2 пехотные (k 2–3), наступление. Синие: 3 пехотные, оборона. Всё на 100%.
         /// </summary>
@@ -97,6 +117,8 @@ namespace BattlePix.Core.Tests
             Division(w, 1, 3, 2, DivisionTypes.Infantry, org: redOrg);
             Order(w, 1, 2, Orders.Attack);
             for (int k = 0; k < 3; k++) Division(w, 2, k, 1, DivisionTypes.Infantry, org: blueOrg);
+            CoreFromOwner(w);
+            War(w, 1, 2);
             Recount(w);
             return w;
         }
@@ -222,6 +244,8 @@ namespace BattlePix.Core.Tests
                 Worlds.Division(w, 1, 0, 2, 0);
                 Worlds.Order(w, 1, 2, Orders.Attack);
                 Worlds.Division(w, 2, 0, 1, 1);
+                Worlds.CoreFromOwner(w);
+                Worlds.War(w, 1, 2);
                 Worlds.Recount(w);
                 new DivisionSystem().FillPow(w);
                 CollectionAssert.AreEqual(new[] { 1, 2, 5, 6 }, w.Frontier.ToArray());
@@ -271,6 +295,8 @@ namespace BattlePix.Core.Tests
                 Worlds.Nation(world, 2, -1, 1);
                 Worlds.Division(world, 1, 0, 2, 0);
                 Worlds.Order(world, 1, 2, Orders.Attack);
+                Worlds.CoreFromOwner(world);
+                Worlds.War(world, 1, 2);
                 Worlds.Recount(world);
                 new DivisionSystem().FillPow(world);
                 Assert.AreEqual(250, world.AttPow(1, 2, 0));
@@ -317,12 +343,13 @@ namespace BattlePix.Core.Tests
             }
         }
 
-        /// <summary>01c acceptance 6: FrontLen, FrontTerrainLen, Frontier, Pixels, Divisions совпадают с пересчётом с нуля каждые 600 тиков.</summary>
+        /// <summary>01c acceptance 6, 02b acceptance 4: FrontLen, FrontTerrainLen, Frontier, Pixels, Divisions, OccupiedLen, ClaimHeldLen совпадают с пересчётом с нуля каждые 600 тиков, с войнами.</summary>
         [Test]
         public void DerivedStateMatches()
         {
             var config = TestData.Config();
             var rules = TestData.Rules();
+            int declared = 0, peace = 0;
             for (ulong seed = 1; seed <= 10; seed++)
             {
                 using (var sim = new Simulation(config, rules, seed, 0, 0))
@@ -332,8 +359,13 @@ namespace BattlePix.Core.Tests
                         TestUtil.RunWithBot(sim, 600, seed * 100 + (ulong)block);
                         Derived.AssertMatches(sim.World, $"seed {seed}, tick {sim.World.Tick}");
                     }
+                    declared += sim.World.WarEvents.FindAll(e => e.Kind == WarEventKind.Declared).Count;
+                    peace += sim.World.WarEvents.FindAll(e => e.Kind == WarEventKind.Peace).Count;
                 }
             }
+            TestContext.WriteLine($"wars declared {declared}, peace {peace}");
+            Assert.Greater(declared, 0, "02b acceptance 4: with wars");
+            Assert.Greater(peace, 0, "02b acceptance 4: with peace");
         }
 
         [Test]
@@ -377,6 +409,9 @@ namespace BattlePix.Core.Tests
             Worlds.Order(world, 2, 1, Orders.Attack);
             Worlds.Order(world, 2, 3, Orders.Attack);
             Worlds.Order(world, 3, 2, Orders.Attack);
+            Worlds.CoreFromOwner(world);
+            Worlds.War(world, 1, 2);
+            Worlds.War(world, 3, 2);
             FrontSystem.StampCapitals(world);
             Worlds.Recount(world);
             return world;
@@ -430,6 +465,13 @@ namespace BattlePix.Core.Tests
                 Assert.AreEqual(1, world.Nations[0].Divisions);
                 Assert.AreEqual(2, world.Nations[0].Pixels);
                 Assert.AreEqual(2, world.Nations[2].Pixels);
+                // 02b §4.5: занятое у Синих закреплено за держателями, земля Синих ничья, войны с Синими закрыты.
+                CollectionAssert.AreEqual(new byte[] { 1, 0, 1, 0, 3, 0, 3 }, world.Core.ToArray());
+                Assert.AreEqual(WarStatus.Peace, world.WarOf(1, 2).Status);
+                Assert.AreEqual(WarStatus.Peace, world.WarOf(2, 3).Status);
+                Assert.AreEqual(0, world.WarOf(1, 2).Attacker);
+                Assert.AreEqual(world.Tick, world.Nation(1).OwnWarEndTick, "Red's own war ended");
+                Assert.AreEqual(2, world.WarEvents.FindAll(e => e.Kind == WarEventKind.EndedByDeath).Count);
                 Derived.AssertMatches(world, "after death");
             }
             finally
@@ -471,6 +513,26 @@ namespace BattlePix.Core.Tests
                 }
             }
             CollectionAssert.AreEqual(frontLen, w.FrontLen.ToArray(), $"{where}: FrontLen");
+
+            // 02b: OccupiedLen с нуля; Core = 0 ровно там, где Owner = 0.
+            var occupied = new int[stride * stride];
+            for (int p = 0; p < n; p++)
+            {
+                int o = w.Owner[p], c = w.Core[p];
+                if ((o == 0) != (c == 0)) Assert.Fail($"{where}: pixel {p} owner {o} core {c}");
+                if (c != 0 && o != c) occupied[o * stride + c]++;
+            }
+            CollectionAssert.AreEqual(occupied, w.OccupiedLen.ToArray(), $"{where}: OccupiedLen");
+            // ClaimHeldLen считается раз в секунду: сверяем на границе секунды (после Step с WarSystem.Second).
+            if (w.Tick % 10 == 0)
+                for (int a = 1; a <= w.NationCount; a++)
+                for (int b = a + 1; b <= w.NationCount; b++)
+                {
+                    var war = w.WarOf(a, b);
+                    int expected = war.Status == WarStatus.War && war.Goal == WarGoals.Claims
+                        ? WarSystem.CountCircle(w, war.ClaimCenter, war.Defender(a, b), war.Attacker) : 0;
+                    Assert.AreEqual(expected, w.ClaimHeld(a, b), $"{where}: ClaimHeldLen {a}-{b}");
+                }
             CollectionAssert.AreEqual(terrainLen, w.FrontTerrainLen.ToArray(), $"{where}: FrontTerrainLen");
 
             // Divisions у нации — по живым слотам.
