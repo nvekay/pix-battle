@@ -554,6 +554,7 @@ namespace BattlePix.Core
             f.Profiles["base"] = new AiProfile();
             f.Profiles["spread"] = new AiProfile { Spread = true };
             f.Profiles["no_armor"] = new AiProfile { ArmorPlainShare_bp = 1000000 };
+            f.Profiles["no_claims"] = new AiProfile { ClaimsChance_bp = 0 };
             return f;
         }
 

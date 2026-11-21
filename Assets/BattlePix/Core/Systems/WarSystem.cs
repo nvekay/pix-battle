@@ -530,6 +530,41 @@ namespace BattlePix.Core
 
         // ---------- для UI и ИИ ----------
 
+        /// <summary>
+        /// Насколько выполнено условие стороны side в войне a–b, bp от порога (10 000 = выполнено, может быть больше):
+        /// у нападающего — район (на последнюю секунду) или занятая доля его довоенной земли, у защитника — занятая доля земли нападающего.
+        /// Нет войны — 0.
+        /// </summary>
+        public static int GoalProgress_bp(World w, int a, int b, int side)
+        {
+            if (!w.AtWar(a, b)) return 0;
+            var r = w.Rules.War;
+            var war = w.WarOf(a, b);
+            byte att = war.Attacker, def = war.Defender(a, b);
+            long have, need;
+            if (side == att)
+            {
+                if (war.Goal == WarGoals.Claims)
+                {
+                    have = (long)w.ClaimHeld(a, b) * 10000;
+                    need = (long)r.ClaimHold_bp * war.ClaimTotal;
+                }
+                else
+                {
+                    have = (long)w.Occupied(att, def) * 10000;
+                    need = (long)r.RepOccupy_bp * war.PreWarDef;
+                }
+            }
+            else
+            {
+                have = (long)w.Occupied(def, att) * 10000;
+                need = (long)r.DefenseWin_bp * war.PreWarAtt;
+            }
+            if (need <= 0) return 10000;
+            long p = have * 10000 / need;
+            return p > int.MaxValue ? int.MaxValue : (int)p;
+        }
+
         /// <summary>Своих войн нации (которые она начала).</summary>
         public static int OwnWars(World w, byte self)
         {
