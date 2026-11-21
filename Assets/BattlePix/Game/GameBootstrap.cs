@@ -120,6 +120,7 @@ namespace BattlePix.Game
                     var cmd = BenchCommand(ref rng, t);
                     if (cmd.HasValue)
                     {
+                        if (cmd.Value.Type == CommandType.DeclareWar && cmd.Value.B > 0) _benchClaims++;
                         _sim.EnqueueFromUi(cmd.Value.Type, Human, cmd.Value.A, cmd.Value.B);
                         sent[(int)cmd.Value.Type]++;
                     }
@@ -128,9 +129,10 @@ namespace BattlePix.Game
             }
             float elapsed = Time.unscaledTime - start;
             UnityEngine.Debug.Log(string.Format(CultureInfo.InvariantCulture,
-                "[BattlePix] bench: {0}x{1}, speed x{2}, {3:0.0} fps avg, worst frame {4:0.0} ms, tick {5}, commands recruit {6} assign {7} order {8}",
+                "[BattlePix] bench: {0}x{1}, speed x{2}, {3:0.0} fps avg, worst frame {4:0.0} ms, tick {5}, commands recruit {6} assign {7} order {8} declare {9} (claims {10}) peace {11} answer {12}",
                 Screen.width, Screen.height, speed, frames / elapsed, worst * 1000f, _sim.World.Tick,
-                sent[(int)CommandType.RecruitDivision], sent[(int)CommandType.AssignDivision], sent[(int)CommandType.SetFrontOrder]));
+                sent[(int)CommandType.RecruitDivision], sent[(int)CommandType.AssignDivision], sent[(int)CommandType.SetFrontOrder],
+                sent[(int)CommandType.DeclareWar], _benchClaims, sent[(int)CommandType.ProposePeace], sent[(int)CommandType.AnswerPeace]));
 
             if (TryGetArg("-benchShot", out var shot))
             {
@@ -151,14 +153,35 @@ namespace BattlePix.Game
             Application.Quit(0);
         }
 
+        int _benchClaims, _sentDeclares;
+
         /// <summary>
         /// Простой «человек» для бенча: только команды, которые сейчас проходят валидацию. Набирает пехотные и танковые
-        /// дивизии, ставит их на фронты и в тыл, переключает приказы фронтам — все три новых типа команд для реплея.
+        /// дивизии, ставит их на фронты и в тыл, переключает приказы фронтам; 02b — объявляет войну (через раз с претензиями
+        /// на район, который предлагает ядро), отвечает на предложения ИИ (через раз отказ) и сам предлагает мир.
         /// </summary>
         Command? BenchCommand(ref Pcg32 rng, int t)
         {
             var w = _sim.World;
             if (w.Nation(Human).Alive == 0) return null;
+            // Ответ на живое предложение ИИ — сразу, чтобы реплей содержал и принятие, и отказ.
+            for (int d = 1; d <= w.NationCount; d++)
+                if (d != Human && WarSystem.ValidateAnswer(w, Human, d, 1) == RejectReason.None)
+                    return new Command { Nation = Human, Type = CommandType.AnswerPeace, A = d, B = rng.NextInt(2) };
+            if (t % 50 == 0)
+            {
+                for (int d = 1; d <= w.NationCount; d++)
+                {
+                    if (d == Human || WarSystem.Wars(w, Human) > 0 || WarSystem.ValidateDeclare(w, Human, d, 0) != RejectReason.None) continue;
+                    int center = _benchClaims * 2 <= _sentDeclares ? WarSystem.SuggestClaimCenter(w, Human, (byte)d) : -1;
+                    _sentDeclares++;
+                    return new Command { Nation = Human, Type = CommandType.DeclareWar, A = d, B = center >= 0 ? center + 1 : 0 };
+                }
+                for (int d = 1; d <= w.NationCount; d++)
+                    if (d != Human && w.AtWar(Human, d) && (w.GoalFulfilled(Human, d, Human) || w.Tick - w.WarOf(Human, d).StartTick > 1200)
+                        && WarSystem.ValidatePropose(w, Human, d) == RejectReason.None)
+                        return new Command { Nation = Human, Type = CommandType.ProposePeace, A = d };
+            }
             var options = new List<Command>();
             for (int type = 0; type < _rules.Divisions.Length; type++)
                 if (GameCommands.ValidateRecruit(w, Human, type) == RejectReason.None)
@@ -233,7 +256,11 @@ namespace BattlePix.Game
             OnSpeedKeys(kb);
             _hud.OnKeys(kb);
             var mouse = UnityEngine.InputSystem.Mouse.current;
-            if (mouse != null) _hud.UpdateHover(mouse.position.ReadValue());
+            if (mouse != null)
+            {
+                _hud.UpdateHover(mouse.position.ReadValue());
+                _hud.UpdateClaimHover(mouse.position.ReadValue());
+            }
             if (_panelScale != _camera.UiScale) ApplyUiScale();
 
             if (now - _tpsWindowStart >= 1f)

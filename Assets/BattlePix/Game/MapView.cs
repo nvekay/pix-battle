@@ -6,7 +6,8 @@ namespace BattlePix.Game
 {
     /// <summary>
     /// Запечённая 2.5D-карта (спека 02a §5.3–5.6): один квад, шейдер MapBaked. Рельеф, вода и декор печёт TerrainBaker
-    /// при старте партии; в кадре меняются только владельцы (R8 512×256), вспышки фронта и статусы пар.
+    /// при старте партии; в кадре меняются только владельцы и исконные владельцы (R8 512×256), вспышки фронта, статусы пар
+    /// и районы претензий.
     /// 1 юнит мира = 1 пиксель запечённой текстуры, левый нижний угол карты в (0, 0). Только читает мир между тиками.
     /// </summary>
     [RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
@@ -39,8 +40,18 @@ namespace BattlePix.Game
         static readonly int LineColorId = Shader.PropertyToID("_LineColor");
         static readonly int OwnFringeId = Shader.PropertyToID("_OwnFringe");
         static readonly int PeaceLineId = Shader.PropertyToID("_PeaceLine");
+        static readonly int CoreTexId = Shader.PropertyToID("_CoreTex");
+        static readonly int HatchStepId = Shader.PropertyToID("_HatchStep");
+        static readonly int HatchAlphaId = Shader.PropertyToID("_HatchAlpha");
+        static readonly int ClaimsId = Shader.PropertyToID("_Claims");
+        static readonly int ClaimCountId = Shader.PropertyToID("_ClaimCount");
+        static readonly int ClaimPreviewId = Shader.PropertyToID("_ClaimPreview");
+        static readonly int PreviewOkId = Shader.PropertyToID("_PreviewOk");
+        static readonly int PreviewBadId = Shader.PropertyToID("_PreviewBad");
+        const int MaxClaims = 16;
+        readonly Vector4[] _claims = new Vector4[MaxClaims];
 
-        Texture2D _terrainColor, _cellIdTex, _ownerTex, _terrainTex, _fxTex, _paletteTex, _pairTex;
+        Texture2D _terrainColor, _cellIdTex, _ownerTex, _terrainTex, _fxTex, _paletteTex, _pairTex, _coreTex;
         MeshRenderer _renderer;
         Material _material;
         PaletteData _pal;
@@ -85,6 +96,7 @@ namespace BattlePix.Game
             _terrainTex = NewR8("TerrainTex", width, height);
             _fxTex = NewR8("FrontFxTex", width, height);
             _pairTex = NewR8("PairStatus", 16, 16);
+            _coreTex = NewR8("CoreTex", width, height);
             _paletteTex = new Texture2D(256, 1, TextureFormat.RGBA32, false, false)
             {
                 name = "PaletteTex",
@@ -101,6 +113,14 @@ namespace BattlePix.Game
             _material.SetTexture(PaletteTexId, _paletteTex);
             _material.SetTexture(FrontFxTexId, _fxTex);
             _material.SetTexture(PairStatusId, _pairTex);
+            _material.SetTexture(CoreTexId, _coreTex);
+            _material.SetFloat(HatchStepId, pal.War.HatchStep);
+            _material.SetFloat(HatchAlphaId, pal.War.HatchAlpha_bp / 10000f);
+            _material.SetVector(PreviewOkId, Srgb(pal.War.ClaimOk));
+            _material.SetVector(PreviewBadId, Srgb(pal.War.ClaimBad));
+            _material.SetVectorArray(ClaimsId, _claims);
+            _material.SetFloat(ClaimCountId, 0);
+            _material.SetVector(ClaimPreviewId, Vector4.zero);
             _material.SetVector(MapSizeId, new Vector4(width, height, 0, 0));
             _material.SetVector(KindMultId, new Vector4(pal.TintKindMult_bp.Face, pal.TintKindMult_bp.Wall, pal.TintKindMult_bp.Decor, 0) / 10000f);
             _material.SetFloat(LinePxId, pal.Border.LinePx);
@@ -211,6 +231,13 @@ namespace BattlePix.Game
                 var dst = _ownerTex.GetPixelData<byte>(0);
                 owner.CopyTo(dst);
                 _ownerTex.Apply(false);
+                // Core меняется вместе с Owner (расползание, мир, гибель нации): те же грязные строки.
+                if (world.Core.Length == world.PixelCount)
+                {
+                    var core = _coreTex.GetPixelData<byte>(0);
+                    world.Core.CopyTo(core);
+                    _coreTex.Apply(false);
+                }
                 world.ClearDirtyRows();
             }
             UpdateFx(now);
@@ -239,21 +266,44 @@ namespace BattlePix.Game
         }
 
         /// <summary>
-        /// Статусы пар в _PairStatus (0 мир, 1 война, 2 перемирие). В этом куске контакт = война: 1 для всех пар живых наций.
-        /// Статусы в ядре — кусок 2 «Война, цели и мир».
+        /// Статусы пар в _PairStatus из ядра (02b §9): 0 мир — тонкая светлая линия, 1 война — тёмная с каймой,
+        /// 2 перемирие — штрих. Войны между ИИ видны тем же стилем. Там же районы претензий: свои и на нас — всегда,
+        /// между ИИ — только на зуме ½ и 1.
         /// </summary>
         public void UpdatePairs(World world)
         {
             if (_pairTex == null) return;
             var px = _pairTex.GetPixelData<byte>(0);
+            int n = world.NationCount;
             for (int a = 0; a < 16; a++)
             for (int b = 0; b < 16; b++)
             {
-                bool war = a != b && a >= 1 && b >= 1 && a <= world.NationCount && b <= world.NationCount
-                    && world.Nation((byte)a).Alive != 0 && world.Nation((byte)b).Alive != 0;
-                px[b * 16 + a] = (byte)(war ? 1 : 0);
+                byte st = 0;
+                if (a != b && a >= 1 && b >= 1 && a <= n && b <= n && world.Nation((byte)a).Alive != 0 && world.Nation((byte)b).Alive != 0)
+                    st = world.WarOf(a, b).Status;
+                px[b * 16 + a] = st;
             }
             _pairTex.Apply(false);
+
+            int count = 0, w = world.Width;
+            for (int a = 1; a <= n && count < MaxClaims; a++)
+            for (int b = a + 1; b <= n && count < MaxClaims; b++)
+            {
+                var war = world.WarOf(a, b);
+                if (war.Status != WarStatus.War || war.Goal != WarGoals.Claims || war.ClaimCenter < 0) continue;
+                bool ours = a == _human || b == _human;
+                if (!ours && _zoomIndex > 1) continue;
+                _claims[count++] = new Vector4(war.ClaimCenter % w, war.ClaimCenter / w, world.Rules.War.ClaimRadius, war.Attacker);
+            }
+            _material.SetVectorArray(ClaimsId, _claims);
+            _material.SetFloat(ClaimCountId, count);
+        }
+
+        /// <summary>Превью района под курсором в режиме выбора: ok — можно (зелёный), иначе красный; center &lt; 0 — скрыть.</summary>
+        public void SetClaimPreview(int x, int y, int radius, bool ok, bool show)
+        {
+            if (_material == null) return;
+            _material.SetVector(ClaimPreviewId, show ? new Vector4(x, y, radius, ok ? 1 : 2) : Vector4.zero);
         }
 
         public void SetFocusNation(int nation)
@@ -318,10 +368,10 @@ namespace BattlePix.Game
 
         void Release()
         {
-            foreach (var t in new[] { _terrainColor, _cellIdTex, _ownerTex, _terrainTex, _fxTex, _paletteTex, _pairTex })
+            foreach (var t in new[] { _terrainColor, _cellIdTex, _ownerTex, _terrainTex, _fxTex, _paletteTex, _pairTex, _coreTex })
                 if (t != null) Destroy(t);
             if (_material != null) Destroy(_material);
-            _terrainColor = _cellIdTex = _ownerTex = _terrainTex = _fxTex = _paletteTex = _pairTex = null;
+            _terrainColor = _cellIdTex = _ownerTex = _terrainTex = _fxTex = _paletteTex = _pairTex = _coreTex = null;
             _material = null;
             _decor?.Dispose();
             _decor = null;

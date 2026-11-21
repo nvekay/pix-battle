@@ -31,6 +31,8 @@ namespace BattlePix.Game
         [JsonProperty("tintKindMult_bp")] public KindMult TintKindMult_bp = new KindMult();
         [JsonProperty("border")] public BorderStyle Border = new BorderStyle();
         [JsonProperty("fx")] public FxStyle Fx = new FxStyle();
+        /// <summary>Война на карте (спека 02b §9): штриховка занятой земли, превью района.</summary>
+        [JsonProperty("war")] public WarStyle War = new WarStyle();
         [JsonProperty("ocean")] public string Ocean = "#265496";
         [JsonProperty("sky")] public string Sky = "#265496";
 
@@ -80,6 +82,14 @@ namespace BattlePix.Game
             [JsonProperty("peaceLine")] public string PeaceLine = "#C8CCD4";
             [JsonProperty("peaceAlpha_bp")] public int PeaceAlpha_bp = 6000;
             [JsonProperty("truceDash")] public int TruceDash = 4;
+        }
+
+        public sealed class WarStyle
+        {
+            [JsonProperty("hatchStep")] public int HatchStep = 4;
+            [JsonProperty("hatchAlpha_bp")] public int HatchAlpha_bp = 3500;
+            [JsonProperty("claimOk")] public string ClaimOk = "#5AD25A";
+            [JsonProperty("claimBad")] public string ClaimBad = "#E04848";
         }
 
         public sealed class FxStyle

@@ -17,5 +17,6 @@
               "line": "#14121A", "ownFringe": "#FFFFFF", "otherFringeLight_bp": 2500,
               "peaceLine": "#C8CCD4", "peaceAlpha_bp": 6000, "truceDash": 4 },
   "fx": { "gainLight_bp": 4500, "lossDark_bp": 4500, "seconds": 1.0 },
+  "war": { "hatchStep": 4, "hatchAlpha_bp": 3500, "claimOk": "#5AD25A", "claimBad": "#E04848" },
   "ocean": "#265496", "sky": "#265496"
 }

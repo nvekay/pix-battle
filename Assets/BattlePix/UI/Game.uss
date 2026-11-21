@@ -386,3 +386,29 @@
 .end-title { font-size: 60px; color: var(--text); -unity-font-style: bold; margin-bottom: 8px; }
 .end-buttons { flex-direction: row; margin-top: 16px; }
 .end-buttons > .btn { padding: 0 16px; height: 48px; }
+
+/* ---------- война и мир (спека 02b §9) ---------- */
+.front-status { font-size: 20px; margin: 0 4px; padding: 0 6px; color: rgb(24, 29, 39); background-color: rgb(154, 160, 172); }
+.front-status.st-war { background-color: var(--bad); color: rgb(255, 255, 255); }
+.front-status.st-truce { background-color: rgb(244, 170, 60); }
+.front-row.at-war { border-color: rgb(120, 40, 36); }
+.front-line { font-size: 20px; color: var(--text); margin: 2px 0 0 0; padding: 0; white-space: normal; }
+.front-btn { margin: 4px 0 0 0; min-height: 32px; font-size: 20px; }
+.front-btn > Label { font-size: 20px; margin: 0; padding: 0; -unity-text-align: middle-center; }
+.btn.peace-gold { border-color: var(--gold); color: var(--gold); background-color: rgba(244, 196, 72, 0.18); }
+.btn.peace-gold > Label { color: var(--gold); }
+.declare-card {
+    position: absolute;
+    right: 432px; top: 120px;
+    width: 440px;
+    padding: 8px 12px 12px 12px;
+    border-color: var(--bad);
+}
+.declare-option { flex-direction: column; align-items: flex-start; margin: 8px 0 0 0; padding: 6px 8px; min-height: 64px; }
+.declare-body { white-space: normal; margin: 2px 0 0 0; padding: 0; color: var(--text); }
+.declare-risk { white-space: normal; margin: 8px 0; color: var(--bad); }
+.feed-card.offer { height: auto; border-color: var(--gold); }
+.feed-card.offer .feed-stripe { background-color: var(--gold); }
+.feed-card.offer .feed-head { color: var(--gold); }
+.offer-row { flex-direction: row; margin-top: 4px; }
+.offer-row > .btn { flex-grow: 1; min-height: 32px; margin: 0 4px 0 0; font-size: 20px; }

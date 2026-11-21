@@ -1,6 +1,7 @@
 // Запечённая 2.5D-карта (спека 02a §5.4). Один квад. GPU только рисует: владельцы, вспышки фронта и статусы пар
 // приходят из мира между тиками. Рельеф, вода и декор запечены при старте партии (TerrainBaker).
-// Слои: запечённый цвет → тонировка владельцем по CellId → FrontFx → граница в экранном пространстве поверх всего.
+// Слои: запечённый цвет → тонировка владельцем по CellId → штриховка занятой земли (02b) → FrontFx → районы претензий →
+// граница в экранном пространстве поверх всего.
 Shader "BattlePix/MapBaked"
 {
     Properties
@@ -12,6 +13,7 @@ Shader "BattlePix/MapBaked"
         [NoScaleOffset] _PaletteTex ("Palette (256x1)", 2D) = "white" {}
         [NoScaleOffset] _FrontFxTex ("Front fx (R8)", 2D) = "black" {}
         [NoScaleOffset] _PairStatus ("Pair status (R8 16x16)", 2D) = "black" {}
+        [NoScaleOffset] _CoreTex ("Core owner (R8)", 2D) = "black" {}
     }
     SubShader
     {
@@ -37,6 +39,7 @@ Shader "BattlePix/MapBaked"
             TEXTURE2D(_PaletteTex);
             TEXTURE2D(_FrontFxTex);
             TEXTURE2D(_PairStatus);
+            TEXTURE2D(_CoreTex);
             SAMPLER(bp_point_clamp_sampler);
 
             float4 _BakeSize;     // x, y — размер запечённой текстуры в px
@@ -57,6 +60,14 @@ Shader "BattlePix/MapBaked"
             half4 _LineColor;
             half4 _OwnFringe;
             half4 _PeaceLine;
+            // 02b: занятая земля — штриховка цветом исконного владельца; районы претензий — пунктирные окружности.
+            float _HatchStep;     // шаг штриховки в экранных px
+            float _HatchAlpha;
+            float4 _Claims[16];   // x, y — центр в клетках, z — радиус, w — id нападающего
+            float _ClaimCount;
+            float4 _ClaimPreview; // x, y, z как у _Claims; w: 0 — нет, 1 — можно, 2 — нельзя
+            half4 _PreviewOk;
+            half4 _PreviewBad;
 
             struct Attributes { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
             struct Varyings   { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -105,6 +116,22 @@ Shader "BattlePix/MapBaked"
 
             float Luma(half3 c) { return dot(c, half3(0.299, 0.587, 0.114)); }
 
+            float CoreOf(float2 c)
+            {
+                return floor(SAMPLE_TEXTURE2D_LOD(_CoreTex, bp_point_clamp_sampler, CellUv(c), 0).r * 255.0 + 0.5);
+            }
+
+            // Окружность района: кольцо в одну клетку, пунктир по углу; внутри — лёгкая заливка. 0 — мимо, 1 — заливка, 2 — линия.
+            float ClaimMark(float2 cell, float4 cl)
+            {
+                float2 dv = cell - cl.xy;
+                float d = length(dv);
+                if (d > cl.z + 0.5) return 0;
+                if (d < cl.z - 0.5) return 1;
+                float a = atan2(dv.y, dv.x) * cl.z; // длина дуги в клетках
+                return fmod(floor(a / 2.0) + 1000.0, 2.0) < 0.5 ? 2 : 1;
+            }
+
             half4 frag (Varyings i) : SV_Target
             {
                 float2 p = i.uv * _BakeSize.xy;
@@ -131,12 +158,41 @@ Shader "BattlePix/MapBaked"
                     col = lerp(col, t, s);
                 }
 
+                // Занятая земля (Core ≠ Owner): держатель тонирует, поверх диагональная штриховка цветом исконного владельца.
+                if (owner > 0)
+                {
+                    float core = CoreOf(cell);
+                    if (core > 0 && core != owner)
+                    {
+                        float2 sp0 = i.positionCS.xy;
+                        if (fmod(floor((sp0.x + sp0.y) / max(_HatchStep, 1)), 2.0) < 0.5)
+                            col = lerp(col, NationColor(core), _HatchAlpha);
+                    }
+                }
+
                 // FrontFx: взятая клетка светлее, потерянная темнее, остывает.
                 float fx = floor(SAMPLE_TEXTURE2D_LOD(_FrontFxTex, bp_point_clamp_sampler, CellUv(cell), 0).r * 255.0 + 0.5);
                 if (fx > 0.5 && kind < 2.5)
                 {
                     if (fx < 128) col = lerp(col, 1.0, _GainLight * fx / 127.0);
                     else col *= 1.0 - _LossDark * (fx - 128) / 127.0;
+                }
+
+                // Районы претензий: заливка 10% и пунктир цветом нападающего; превью выбора — зелёным или красным.
+                [loop] for (int ci = 0; ci < 16; ci++)
+                {
+                    if (ci >= _ClaimCount) break;
+                    float m = ClaimMark(cell, _Claims[ci]);
+                    half3 cc = NationColor(_Claims[ci].w);
+                    if (m > 1.5) col = cc;
+                    else if (m > 0.5) col = lerp(col, cc, 0.10);
+                }
+                if (_ClaimPreview.w > 0.5)
+                {
+                    float m = ClaimMark(cell, _ClaimPreview);
+                    half3 pc = _ClaimPreview.w < 1.5 ? _PreviewOk.rgb : _PreviewBad.rgb;
+                    if (m > 1.5) col = pc;
+                    else if (m > 0.5) col = lerp(col, pc, 0.15);
                 }
 
                 // Граница в экранном пространстве: ближайший по экрану пиксель чужой суши на расстоянии d.
