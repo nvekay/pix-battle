@@ -31,6 +31,9 @@ namespace BattlePix.Game
         Simulation _sim;
         World W => _sim.World;
 
+        /// <summary>Камера едет к точке мира (клик по строке «Фронты»).</summary>
+        public Action<Vector3> FlyTo;
+
         // HUD
         readonly Label _hudGold, _hudIncome, _hudArmy, _hudLand, _hudTimer, _tip, _plate, _assignHint, _frontsEmpty;
         readonly VisualElement _frontsList, _markers;
@@ -426,7 +429,11 @@ namespace BattlePix.Game
                 return;
             }
             _plateFront = _plateFront == d ? 0 : d;
-            if (_plateFront != 0) ShowPlate(d);
+            if (_plateFront != 0)
+            {
+                ShowPlate(d);
+                if (FrontPoint(d, out var cell)) FlyTo?.Invoke(_map.CellToWorld(cell.x, cell.y));
+            }
             else HidePanels();
             Refresh();
         }
@@ -477,17 +484,20 @@ namespace BattlePix.Game
         }
 
         /// <summary>Только для скриншота бенча: открыть плашку первого фронта и выделить 1-е соединение.</summary>
-        public void ShowFirstFrontForShot()
+        public Vector3? ShowFirstFrontForShot()
         {
+            Vector3? at = null;
             for (int d = 1; d <= W.NationCount; d++)
                 if (Contact(d))
                 {
                     _plateFront = d;
                     ShowPlate((byte)d);
+                    if (FrontPoint((byte)d, out var c)) at = _map.CellToWorld(c.x, c.y);
                     break;
                 }
             _selected = GameCommands.OwnFormation(W, Human, 0) ? 0 : -1;
             Refresh();
+            return at;
         }
 
         /// <summary>ПКМ или Esc: снять выделение, закрыть плашку и подсказку.</summary>
@@ -663,12 +673,27 @@ namespace BattlePix.Game
             {
                 var l = _markerLabels[d];
                 if (!(l.userData is Vector2Int px)) continue;
-                var world = _map.PixelToWorld(px.x, px.y);
+                var world = _map.CellToWorld(px.x, px.y);
                 var pos = RuntimePanelUtils.CameraTransformWorldToPanel(panel, world, _camera);
                 var origin = _markers.worldBound.position;
                 l.style.left = pos.x - origin.x - 10;
                 l.style.top = pos.y - origin.y - 10;
             }
+        }
+
+        /// <summary>Точка фронта с d (та же, где значок штаба); пока значки не посчитаны — первый пограничный пиксель.</summary>
+        bool FrontPoint(byte d, out Vector2Int cell)
+        {
+            cell = default;
+            if (_markerLabels != null && _markerLabels[d].userData is Vector2Int v) { cell = v; return true; }
+            var w = W;
+            var frontier = w.Frontier;
+            for (int i = 0; i < frontier.Length; i++)
+            {
+                int p = frontier[i];
+                if (w.Owner[p] == Human && TouchesNation(p, d)) { cell = new Vector2Int(p % w.Width, p / w.Width); return true; }
+            }
+            return false;
         }
 
         bool TouchesNation(int p, byte d)

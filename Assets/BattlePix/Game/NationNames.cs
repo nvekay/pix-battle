@@ -2,32 +2,35 @@ using System.Collections.Generic;
 
 namespace BattlePix.Game
 {
-    /// <summary>Имена наций для текстов UI: «Синие» → «по Синим», «столица Синих».</summary>
+    /// <summary>
+    /// Имена государств для текстов UI (спека 02a §9.3): падежи из nations.json, без склонения по окончаниям.
+    /// «фронт с Ольстраном» (твор.), «столица Кесталя» (род.), «в пути к Норвене» (дат.).
+    /// </summary>
     public sealed class NationNames
     {
-        readonly Dictionary<int, string> _names = new Dictionary<int, string>();
+        readonly Dictionary<int, NationInfo> _nations = new Dictionary<int, NationInfo>();
 
         public NationNames(List<NationInfo> nations)
         {
-            foreach (var n in nations) _names[n.Id] = n.Name;
+            foreach (var n in nations) _nations[n.Id] = n;
         }
 
-        public string Nominative(int id) => _names.TryGetValue(id, out var s) ? s : "Нация " + id;
+        public string Nominative(int id) => _nations.TryGetValue(id, out var n) && n.Name != "" ? n.Name : "Государство " + id;
 
-        /// <summary>Дательный падеж прилагательного во множественном числе: -ые/-ие → -ым/-им.</summary>
-        public string Dative(int id) => Inflect(Nominative(id), "ым", "им");
-
-        /// <summary>Родительный: -ые/-ие → -ых/-их.</summary>
-        public string Genitive(int id) => Inflect(Nominative(id), "ых", "их");
-
-        /// <summary>Творительный: -ые/-ие → -ыми/-ими («фронт с Синими»).</summary>
-        public string Instrumental(int id) => Inflect(Nominative(id), "ыми", "ими");
-
-        static string Inflect(string s, string y, string i)
+        /// <summary>«Республика Альвария».</summary>
+        public string Full(int id)
         {
-            if (s.EndsWith("ые")) return s.Substring(0, s.Length - 2) + y;
-            if (s.EndsWith("ие")) return s.Substring(0, s.Length - 2) + i;
-            return s;
+            string form = Form(id);
+            return form != "" ? form + " " + Nominative(id) : Nominative(id);
         }
+
+        public string Form(int id) => _nations.TryGetValue(id, out var n) && n.Form != null ? n.Form : "";
+
+        public string Genitive(int id) => Case(id, "gen");
+        public string Dative(int id) => Case(id, "dat");
+        public string Instrumental(int id) => Case(id, "ins");
+
+        string Case(int id, string key) =>
+            _nations.TryGetValue(id, out var n) && n.Cases != null && n.Cases.TryGetValue(key, out var s) && s != "" ? s : Nominative(id);
     }
 }

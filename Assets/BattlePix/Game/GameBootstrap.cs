@@ -36,6 +36,8 @@ namespace BattlePix.Game
 
         bool _endShown;
         GameHud _hud;
+        MapCamera _camera;
+        MapLabels _labels;
 
         // Метрики для строки отладки.
         readonly Stopwatch _tickWatch = new Stopwatch();
@@ -72,8 +74,11 @@ namespace BattlePix.Game
             var nations = NationInfo.ParseList(data.Text(GameData.NationsFile));
             _palette = NationInfo.BuildPalette(nations);
             _names = new NationNames(nations);
-            mapView.Init(_config.Width, _config.Height, _palette);
+            mapView.Init(_config.Width, _config.Height, _palette, data.Palette());
+            _camera = new MapCamera(mainCamera, mapView, IsOverUi);
             _hud = new GameHud(uiDocument.rootVisualElement, _rules, _config, _names, _palette, mapView, mainCamera, t => ShowToast(t));
+            _hud.FlyTo = w => _camera.FlyTo(w);
+            _labels = new MapLabels(uiDocument.rootVisualElement.Q<VisualElement>("labels"), _names, _palette, mapView.Atlas, Human);
             // Сид новой партии — от времени запуска (адаптер, не ядро). Бенч и отладка задают его явно.
             ulong seed = TryGetArg("-seed", out var s) ? ParseSeed(s) : TryGetArg("-bench", out _) ? ParseSeed(defaultSeed) : TimeSeed();
             StartNewMatch(seed);
@@ -128,7 +133,11 @@ namespace BattlePix.Game
             if (TryGetArg("-benchShot", out var shot))
             {
                 _clock.Pause();
-                _hud.ShowFirstFrontForShot();
+                // -benchShotZoom 1|2 — кадр у первого фронта на этом зуме; по умолчанию вся карта на ½ (спека 02a §12.6).
+                if (TryGetArg("-benchShotZoom", out var zs) && int.TryParse(zs, out int zi) && zi > 0) _camera.ShowAt(HomeWorld(), zi);
+                else _camera.ShowWholeMap();
+                var front = _hud.ShowFirstFrontForShot();
+                if (front.HasValue && TryGetArg("-benchShotZoom", out var zs2) && zs2 != "0") _camera.ShowAt(front.Value, int.Parse(zs2));
                 _hud.UpdateMarkers(Time.unscaledTime + 10f);
                 yield return null;
                 yield return null;
@@ -187,8 +196,10 @@ namespace BattlePix.Game
             _endShown = false;
             _seedField.value = seed.ToString(CultureInfo.InvariantCulture);
             _endScreen.AddToClassList("hidden");
-            mapView.BeginMatch(_sim.World, Human);
+            mapView.BeginMatch(_sim.World, Human, seed);
             _hud.BeginMatch(_sim);
+            _labels.BeginMatch(_sim.World);
+            _camera.Reset(HomeWorld());
         }
 
         void Update()
@@ -210,14 +221,13 @@ namespace BattlePix.Game
             float now = Time.unscaledTime;
             var w = _sim.World;
             mapView.UploadIfDirty(w, now);
-            mapView.SetMarkers(w);
-            mapView.SetStrikeMask(0);
-            PlaceCamera();
+            if (ticks > 0) mapView.UpdatePairs(w);
+            _camera.Update(HomeWorld());
             _hud.UpdateMarkers(now);
+            _labels.Update(w, mapView, mainCamera, _camera.ZoomIndex);
             if (ticks > 0) _hud.CheckEvents();
             var kb = UnityEngine.InputSystem.Keyboard.current;
-            var mouse = UnityEngine.InputSystem.Mouse.current;
-            if ((kb != null && kb.escapeKey.wasPressedThisFrame) || (mouse != null && mouse.rightButton.wasPressedThisFrame))
+            if ((kb != null && kb.escapeKey.wasPressedThisFrame) || _camera.RightClickCancel)
                 _hud.Cancel();
 
             if (now - _tpsWindowStart >= 1f)
@@ -240,19 +250,24 @@ namespace BattlePix.Game
             if (w.IsOver && !_endShown) ShowEnd();
         }
 
-        /// <summary>
-        /// Карта прижата к левому верхнему углу под HUD: справа место под «Фронты», снизу — под «Соединения».
-        /// Pixel Perfect Camera задаёт размер, здесь только сдвиг на целые юниты.
-        /// </summary>
-        void PlaceCamera()
+        /// <summary>Центр верхней грани своей столицы (или центр карты, если столица пала).</summary>
+        Vector3 HomeWorld()
         {
-            if (mainCamera == null) return;
-            float halfH = mainCamera.orthographicSize, halfW = halfH * mainCamera.aspect;
-            float topUnits = 70f / Screen.height * 2f * halfH; // HUD ~ 64 px
-            float x = Mathf.Round(halfW - 8f - mapView.Width * 0.5f);
-            float y = Mathf.Round(mapView.Height * 0.5f + topUnits - halfH);
-            var p = mainCamera.transform.position;
-            if (p.x != x || p.y != y) mainCamera.transform.position = new Vector3(x, y, p.z);
+            var w = _sim.World;
+            var me = w.Nation(Human);
+            if (me.Capital >= 0) return mapView.CellToWorld(me.Capital % w.Width, me.Capital / w.Width);
+            return new Vector3(mapView.BakeWidth * 0.5f, mapView.BakeHeight * 0.5f, 0);
+        }
+
+        /// <summary>Курсор над панелью интерфейса (не над картой и не над значками).</summary>
+        bool IsOverUi(Vector2 screen)
+        {
+            var root = uiDocument.rootVisualElement;
+            var panel = root?.panel;
+            if (panel == null) return false;
+            var p = RuntimePanelUtils.ScreenToPanel(panel, new Vector2(screen.x, Screen.height - screen.y));
+            var picked = panel.Pick(p);
+            return picked != null && picked != _mapArea && picked != root && picked.name != "root";
         }
 
         void OnApplicationFocus(bool hasFocus)
@@ -330,18 +345,14 @@ namespace BattlePix.Game
         void OnMapTap(PointerDownEvent evt)
         {
             if (_sim == null || mainCamera == null || _sim.World.IsOver) return;
+            if (evt.button != 0) return; // ПКМ — перетаскивание или отмена, их ловит MapCamera
             var panelRoot = uiDocument.rootVisualElement.panel.visualTree.worldBound;
             if (panelRoot.width <= 0 || panelRoot.height <= 0) return;
 
             // Панель: y сверху вниз; экран: y снизу вверх.
             Vector2 p = evt.position;
-            var screen = new Vector3(
-                p.x / panelRoot.width * Screen.width,
-                Screen.height - p.y / panelRoot.height * Screen.height,
-                -mainCamera.transform.position.z);
-            var worldPos = mainCamera.ScreenToWorldPoint(screen);
-            bool onMap = mapView.WorldToPixel(worldPos, out int x, out int y);
-            if (evt.button != 0) return; // ПКМ — отмена, её ловит Update
+            var screen = new Vector2(p.x / panelRoot.width * Screen.width, Screen.height - p.y / panelRoot.height * Screen.height);
+            bool onMap = mapView.ScreenToCell(mainCamera, screen, out int x, out int y);
             if (_hud.OnMapClick(onMap, x, y)) return;
             _hud.HidePanels();
             _pixelInfo.text = InfoText(_sim.World, x, y);
