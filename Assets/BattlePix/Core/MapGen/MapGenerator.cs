@@ -32,6 +32,7 @@ namespace BattlePix.Core
             var label = new int[n];
             var owner = new int[n];
             var sizes = new int[nationCount];
+            var bin = new int[n];
 
             Result best = null;
             bool bestLandOk = false;
@@ -41,7 +42,8 @@ namespace BattlePix.Core
                 mapAttempts++;
                 Noise(w, h, mg, ref rng, heights);
                 EdgeFalloff(w, h, mg, heights);
-                int count = ThresholdContinent(w, h, mg, heights, land, queue, label, out bool landOk);
+                int count = ThresholdContinent(w, h, mg, heights, bin, land, queue, label, out bool landOk);
+                Relief(mg, bin, land, count);
                 if (!landOk)
                 {
                     long target = (long)mg.LandShare_bp * n / 10000;
@@ -179,7 +181,7 @@ namespace BattlePix.Core
         /// считается одним проходом объединения (union-find) от высоких корзин к низким.
         /// Возвращает размер континента; в land остаётся только он. inWindow — попал ли континент в окно.
         /// </summary>
-        static int ThresholdContinent(int w, int h, MapGenRules mg, long[] heights, byte[] land, int[] queue, int[] label,
+        static int ThresholdContinent(int w, int h, MapGenRules mg, long[] heights, int[] bin, byte[] land, int[] queue, int[] label,
             out bool inWindow)
         {
             int n = w * h;
@@ -190,7 +192,6 @@ namespace BattlePix.Core
                 if (heights[i] > max) max = heights[i];
             }
             long range = max - min;
-            var bin = new int[n];
             var start = new int[Bins + 1];
             for (int i = 0; i < n; i++)
             {
@@ -325,6 +326,43 @@ namespace BattlePix.Core
             }
         }
 
+        // ---------- 3½. Рельеф суши ----------
+
+        /// <summary>
+        /// Полосы рельефа по той же карте высот (спека 01b §5.7), без вызовов генератора: гистограмма корзин только
+        /// по суше континента. Верхние mountainsShare суши — горы, следующие hillsShare — холмы, остальное — равнина.
+        /// Порог — наибольшая корзина, выше которой набралось не меньше цели, как у порога суши (HighestAtLeast).
+        /// </summary>
+        internal static void Relief(MapGenRules mg, int[] bin, byte[] land, int landCount)
+        {
+            var hist = new int[Bins];
+            for (int i = 0; i < land.Length; i++)
+                if (land[i] != (byte)Core.Terrain.Water) hist[bin[i]]++;
+            int bMountains = Threshold((long)landCount * mg.MountainsShare_bp / 10000);
+            int bHills = Threshold((long)landCount * (mg.MountainsShare_bp + mg.HillsShare_bp) / 10000);
+            for (int i = 0; i < land.Length; i++)
+            {
+                if (land[i] == (byte)Core.Terrain.Water) continue;
+                int b = bin[i];
+                land[i] = b >= bMountains ? (byte)Core.Terrain.Mountains
+                    : b >= bHills ? (byte)Core.Terrain.Hills
+                    : (byte)Core.Terrain.Land;
+            }
+
+            // Наибольшая корзина b, при которой суши в корзинах ≥ b не меньше need; need = 0 — полосы нет (Bins).
+            int Threshold(long need)
+            {
+                if (need <= 0) return Bins;
+                long cum = 0;
+                for (int b = Bins - 1; b >= 0; b--)
+                {
+                    cum += hist[b];
+                    if (cum >= need) return b;
+                }
+                return 0;
+            }
+        }
+
         // ---------- 6. Столицы ----------
 
         /// <summary>
@@ -374,7 +412,9 @@ namespace BattlePix.Core
             return dist;
         }
 
-        /// <summary>Кандидаты в столицы по возрастанию индекса. Если их меньше числа наций, порог берега снижается.</summary>
+        /// <summary>
+        /// Кандидаты в столицы по возрастанию индекса: суша не в горах. Если их меньше числа наций, порог берега снижается.
+        /// </summary>
         static List<int> Candidates(int n, byte[] terrain, int[] coast, int coastDist, int nationCount)
         {
             var list = new List<int>();
@@ -382,16 +422,18 @@ namespace BattlePix.Core
             {
                 list.Clear();
                 for (int i = 0; i < n; i++)
-                    if (terrain[i] != 0 && coast[i] >= k) list.Add(i);
+                    if (CapitalTerrain(terrain[i]) && coast[i] >= k) list.Add(i);
             }
             if (list.Count < nationCount)
             {
                 list.Clear();
                 for (int i = 0; i < n; i++)
-                    if (terrain[i] != 0) list.Add(i);
+                    if (CapitalTerrain(terrain[i])) list.Add(i);
             }
             return list;
         }
+
+        static bool CapitalTerrain(byte t) => t != (byte)Core.Terrain.Water && t != (byte)Core.Terrain.Mountains;
 
         const int CapitalSamples = 64;
 
