@@ -30,7 +30,7 @@ namespace BattlePix.Core
                     int x = cx + dx, y = cy + dy;
                     if (x < 0 || y < 0 || x >= w || y >= h) continue;
                     int i = y * w + x;
-                    if (r.Terrain[i] != (byte)Core.Terrain.Land || owner[i] != 0) continue;
+                    if (r.Terrain[i] == (byte)Core.Terrain.Water || owner[i] != 0) continue;
                     owner[i] = id;
                     pixels++;
                 }
