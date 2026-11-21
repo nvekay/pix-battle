@@ -1,53 +1,148 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
     <Style src="Game.uss" />
-    <ui:VisualElement name="root" class="root">
-        <ui:VisualElement name="hud" class="bar top-bar">
-            <ui:Label name="hud-gold" class="hud" text="Золото 300" />
-            <ui:Label name="hud-income" class="hud" text="+2,0/с" />
-            <ui:Label name="hud-army" class="hud" text="3 · −0,8/с" />
-            <ui:Label name="hud-land" class="hud" text="0% / 40%" />
-            <ui:Label name="hud-timer" class="hud" text="45:00" />
-            <ui:VisualElement class="spacer" />
-            <ui:Button name="btn-pause" class="btn" text="Пауза" />
-            <ui:Button name="btn-x1" class="btn" text="×1" />
-            <ui:Button name="btn-x2" class="btn" text="×2" />
-            <ui:Button name="btn-x4" class="btn" text="×4" />
-            <ui:Button name="btn-debug" class="btn" text="⚙" />
-        </ui:VisualElement>
-        <ui:VisualElement name="debug-panel" class="bar debug-panel hidden">
-            <ui:Label name="status" class="status" text="..." />
-            <ui:Button name="btn-step" class="btn" text="Шаг" />
-            <ui:TextField name="seed" class="seed" label="Сид" value="42" />
-            <ui:Button name="btn-new" class="btn" text="Новая партия" />
-            <ui:Button name="btn-save" class="btn" text="Сохранить реплей" />
-        </ui:VisualElement>
+    <!-- Спека 02a §9.2: карта на весь экран, всё остальное поверх неё. -->
+    <ui:VisualElement name="root" class="root" picking-mode="Ignore">
         <ui:VisualElement name="map-area" class="map-area">
-            <ui:VisualElement name="labels" class="markers" picking-mode="Ignore" />
-            <ui:VisualElement name="markers" class="markers" picking-mode="Ignore" />
-            <ui:Label name="pixel-info" class="panel pixel-info hidden" text="" />
+            <ui:VisualElement name="labels" class="layer" picking-mode="Ignore" />
+            <ui:VisualElement name="markers" class="layer" picking-mode="Ignore" />
+            <ui:VisualElement name="front-plate" class="panel front-plate hidden">
+                <ui:Label name="plate-title" class="text-30" text="Фронт" />
+                <ui:VisualElement class="plate-row">
+                    <ui:VisualElement name="plate-us-icon" class="icon" />
+                    <ui:Label name="plate-us" class="text-20" text="" />
+                </ui:VisualElement>
+                <ui:VisualElement name="plate-them-row" class="plate-row">
+                    <ui:VisualElement name="plate-them-icon" class="icon" />
+                    <ui:Label name="plate-them" class="text-20" text="" />
+                </ui:VisualElement>
+                <ui:VisualElement class="plate-row">
+                    <ui:Label class="text-20 dim" text="Их земля:" />
+                    <ui:VisualElement class="icon icon-plains" />
+                    <ui:Label name="plate-plains" class="text-20" text="" />
+                    <ui:VisualElement class="icon icon-hills" />
+                    <ui:Label name="plate-hills" class="text-20" text="" />
+                    <ui:VisualElement class="icon icon-mountains" />
+                    <ui:Label name="plate-mountains" class="text-20" text="" />
+                </ui:VisualElement>
+                <ui:VisualElement name="plate-capital-row" class="plate-row">
+                    <ui:VisualElement class="icon icon-capital" />
+                    <ui:Label name="plate-capital" class="text-20 gold" text="" />
+                </ui:VisualElement>
+                <ui:Label name="plate-verdict" class="text-20 plate-verdict" text="" />
+                <ui:VisualElement name="plate-pointer" class="plate-pointer" picking-mode="Ignore" />
+            </ui:VisualElement>
         </ui:VisualElement>
-        <ui:VisualElement name="fronts-panel" class="side-panel">
-            <ui:Label class="panel-title" text="Фронты" />
+
+        <!-- Слева сверху: карточка своей нации. -->
+        <ui:VisualElement name="nation-card" class="panel nation-card">
+            <ui:VisualElement name="nation-swatch" class="nation-swatch" />
+            <ui:VisualElement class="nation-names">
+                <ui:Label name="nation-form" class="text-20 dim" text="Республика" />
+                <ui:Label name="nation-name" class="text-30" text="Альвария" />
+            </ui:VisualElement>
+            <ui:Label name="nation-you" class="you-badge" text="ВЫ" />
+        </ui:VisualElement>
+
+        <!-- Сверху по центру: HUD группами. -->
+        <ui:VisualElement name="hud" class="panel hud">
+            <ui:VisualElement class="hud-group">
+                <ui:VisualElement class="icon icon-budget" />
+                <ui:VisualElement class="hud-text">
+                    <ui:Label class="caption" text="Бюджет" />
+                    <ui:VisualElement class="hud-values">
+                        <ui:Label name="hud-budget" class="text-30" text="0" />
+                        <ui:Label name="hud-budget-delta" class="text-20" text="" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="hud-group">
+                <ui:VisualElement class="icon icon-army" />
+                <ui:VisualElement class="hud-text">
+                    <ui:Label class="caption" text="Армия" />
+                    <ui:VisualElement class="hud-values">
+                        <ui:Label name="hud-army" class="text-30" text="0 бат." />
+                        <ui:Label name="hud-army-delta" class="text-20 bad" text="" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="hud-group hud-territory">
+                <ui:VisualElement class="icon icon-territory" />
+                <ui:VisualElement class="hud-text territory-text">
+                    <ui:VisualElement class="hud-values">
+                        <ui:Label class="caption" text="Территория" />
+                        <ui:Label name="land-leader-label" class="caption leader-label" text="" />
+                        <ui:Label name="hud-goal" class="caption gold goal-caption" text="40% победа" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="land-bar" class="land-bar">
+                        <ui:VisualElement name="land-fill" class="land-fill" />
+                        <ui:Label name="land-share" class="land-share" text="0%" />
+                        <ui:VisualElement name="land-goal" class="land-goal" />
+                        <ui:VisualElement name="land-leader" class="land-leader" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement class="hud-group">
+                <ui:VisualElement class="icon icon-time" />
+                <ui:VisualElement class="hud-text">
+                    <ui:Label class="caption" text="До конца" />
+                    <ui:Label name="hud-timer" class="text-30" text="45:00" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Справа сверху: скорость. -->
+        <ui:VisualElement name="speed" class="panel speed">
+            <ui:Button name="btn-pause" class="btn speed-btn" tooltip="Пауза (Space)">
+                <ui:VisualElement class="icon icon-pause" picking-mode="Ignore" />
+            </ui:Button>
+            <ui:Button name="btn-x1" class="btn speed-btn" text="×1" tooltip="Клавиша 1" />
+            <ui:Button name="btn-x2" class="btn speed-btn" text="×2" tooltip="Клавиша 2" />
+            <ui:Button name="btn-x4" class="btn speed-btn" text="×4" tooltip="Клавиша 3" />
+            <ui:Button name="btn-debug" class="btn speed-btn gear" text="⚙" tooltip="Отладка" />
+        </ui:VisualElement>
+        <ui:VisualElement name="debug-panel" class="panel debug-panel hidden">
+            <ui:Label name="status" class="status" text="..." />
+            <ui:VisualElement class="debug-row">
+                <ui:Button name="btn-step" class="btn" text="Шаг" />
+                <ui:TextField name="seed" class="seed" label="Сид" value="42" />
+                <ui:Button name="btn-new" class="btn" text="Новая партия" />
+                <ui:Button name="btn-save" class="btn" text="Сохранить реплей" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Справа: фронты. -->
+        <ui:VisualElement name="fronts-panel" class="panel fronts-panel">
+            <ui:Label class="text-30 panel-title" text="Фронты" />
             <ui:VisualElement name="fronts-list" class="fronts-list" />
-            <ui:Label name="fronts-empty" class="hint" text="Общих границ пока нет" />
+            <ui:Label name="fronts-empty" class="text-20 dim" text="Общих границ пока нет" />
+            <ui:Label name="fronts-hint" class="caption" text="за 10 с · клик — к фронту" />
         </ui:VisualElement>
-        <ui:VisualElement name="formations-panel" class="bottom-panel">
+
+        <!-- Слева снизу: сводка. -->
+        <ui:VisualElement name="feed" class="feed" picking-mode="Ignore" />
+
+        <!-- Снизу: соединения. -->
+        <ui:VisualElement name="formations-panel" class="panel formations-panel">
             <ui:VisualElement class="formations-bar">
-                <ui:Label class="panel-title" text="Соединения" />
-                <ui:Button name="btn-new-hq" class="btn" text="Новый штаб 300 + П 150" />
-                <ui:Button name="btn-new-type" class="btn" text="П" />
-                <ui:Button name="btn-rear" class="btn" text="В тыл" />
-                <ui:Label name="assign-hint" class="hint" text="" />
+                <ui:Label class="text-30 panel-title" text="Соединения" />
+                <ui:Button name="btn-new-hq" class="btn" text="Новый штаб" />
+                <ui:Button name="btn-new-type" class="btn" text="Пехота" tooltip="Чем укомплектовать новый штаб" />
+                <ui:Button name="btn-rear" class="btn" text="В тыл" tooltip="Отвести выделенное соединение (R)" />
+                <ui:Label name="assign-hint" class="text-20 dim assign-hint" text="" />
             </ui:VisualElement>
             <ui:ScrollView name="formations-list" class="formations-list" mode="Horizontal" />
         </ui:VisualElement>
+
+        <ui:Label name="pixel-info" class="panel pixel-info hidden" text="" />
         <ui:Label name="tip" class="panel tip hidden" text="" />
-        <ui:Label name="toast" class="toast hidden" text="" />
+        <ui:Label name="toast" class="panel toast hidden" text="" />
+        <ui:Label name="hover" class="panel hover hidden" picking-mode="Ignore" text="" />
+
         <ui:VisualElement name="end-screen" class="end-screen hidden">
-            <ui:VisualElement class="end-box">
+            <ui:VisualElement class="panel end-box">
                 <ui:Label name="end-title" class="end-title" text="Победа" />
-                <ui:Label name="end-reason" class="end-text" text="" />
-                <ui:Label name="end-stats" class="end-text" text="" />
+                <ui:Label name="end-reason" class="text-30" text="" />
+                <ui:Label name="end-stats" class="text-20 dim" text="" />
                 <ui:VisualElement class="end-buttons">
                     <ui:Button name="btn-again" class="btn" text="Ещё партия" />
                     <ui:Button name="btn-same" class="btn" text="Та же карта" />

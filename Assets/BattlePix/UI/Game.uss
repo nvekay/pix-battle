@@ -1,217 +1,351 @@
-/* UI под ПК (спека 01b §10): мышь, подсказки по наведению разрешены, причина отказа видна и по клику. */
+/* Спека 02a §9: стиль brief-02. Панель #181D27 92%, рамка 3 px #404A5C, прямые углы, без градиентов, отступы кратны 4.
+   Переменные: акцент (--accent) — цвет своей нации, ставится кодом на .root. */
+:root {
+    --panel: rgba(24, 29, 39, 0.92);
+    --edge: rgb(64, 74, 92);
+    --edge-hi: rgb(98, 110, 132);
+    --text: rgb(232, 230, 224);
+    --dim: rgb(154, 160, 172);
+    --gold: rgb(244, 196, 72);
+    --bad: rgb(232, 92, 80);
+    --good: rgb(120, 210, 110);
+    --accent: rgb(63, 102, 217);
+}
+
 .root {
-    flex-grow: 1;
-    flex-direction: column;
-}
-.bar {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    padding: 4px 8px;
-    background-color: rgba(10, 14, 18, 0.82);
-}
-.top-bar { min-height: 52px; }
-.bottom-bar { min-height: 60px; justify-content: center; }
-.map-area { flex-grow: 1; }
-.spacer { flex-grow: 1; }
-.hud {
-    color: rgb(235, 235, 235);
-    font-size: 18px;
-    margin: 0 10px;
-    -unity-text-align: middle-left;
-}
-.status {
-    color: rgb(200, 200, 200);
-    font-size: 14px;
-    -unity-text-align: middle-left;
-    margin-right: 8px;
-}
-.btn {
-    min-width: 44px;
-    min-height: 44px;
-    margin: 4px;
-    padding: 0 12px;
-    font-size: 16px;
-}
-.btn.active {
-    background-color: rgb(70, 120, 180);
-    color: rgb(255, 255, 255);
-}
-.btn.disabled-look {
-    color: rgb(140, 140, 140);
-    background-color: rgb(70, 72, 76);
-}
-.action {
-    min-width: 180px;
-    min-height: 52px;
-    font-size: 18px;
-}
-.btn-confirm {
-    background-color: rgb(70, 140, 90);
-    color: rgb(255, 255, 255);
-}
-.mode-bar { min-height: 52px; justify-content: center; }
-.mode-text {
-    color: rgb(240, 240, 240);
-    font-size: 17px;
-    margin-right: 12px;
-}
-.seed {
-    min-height: 44px;
-    min-width: 200px;
-    margin: 4px;
-    font-size: 16px;
-}
-.seed > .unity-base-text-field__input {
-    min-height: 44px;
-    min-width: 120px;
-}
-.seed > Label {
-    color: rgb(230, 230, 230);
-    min-width: 40px;
-    -unity-text-align: middle-left;
-}
-.panel {
+    -unity-font-definition: url("Fonts/Tiny5.asset");
     position: absolute;
-    padding: 8px 12px;
-    min-height: 44px;
-    max-width: 520px;
-    background-color: rgba(10, 14, 18, 0.92);
-    color: rgb(240, 240, 240);
-    font-size: 16px;
-    border-radius: 4px;
-    white-space: normal;
+    left: 0; top: 0; right: 0; bottom: 0;
+    color: var(--text);
+    font-size: 20px;
 }
-.tip {
-    bottom: 240px;
-    left: 0;
-    right: 0;
-    margin: 0 auto;
-    align-self: center;
-    -unity-text-align: middle-center;
-    background-color: rgba(120, 60, 40, 0.95);
-}
-.toast {
-    position: absolute;
-    top: 64px;
-    left: 30%;
-    right: 30%;
-    padding: 8px 12px;
-    background-color: rgba(10, 14, 18, 0.9);
-    color: rgb(240, 240, 240);
-    font-size: 17px;
-    -unity-text-align: middle-center;
-    white-space: normal;
-}
-.end-screen {
-    position: absolute;
-    left: 0; right: 0; top: 0; bottom: 0;
-    background-color: rgba(0, 0, 0, 0.6);
-    align-items: center;
-    justify-content: center;
-}
-.end-box {
-    padding: 24px 32px;
-    background-color: rgb(20, 26, 32);
-    border-radius: 6px;
-    align-items: center;
-}
-.end-title { font-size: 36px; color: rgb(255, 255, 255); -unity-font-style: bold; }
-.end-text { font-size: 18px; color: rgb(220, 220, 220); margin-top: 8px; }
-.end-buttons { flex-direction: row; margin-top: 16px; }
+.map-area { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+.layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
 .hidden { display: none; }
 
-/* ---------- 01b: панели фронтов и соединений ---------- */
-.markers { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
-.marker {
-    position: absolute;
-    padding: 1px 5px;
-    font-size: 14px;
-    color: rgb(255, 255, 255);
-    background-color: rgba(20, 40, 80, 0.9);
-    border-width: 1px;
-    border-color: rgb(255, 255, 255);
-    border-radius: 3px;
-    -unity-font-style: bold;
+.text-20 { font-size: 20px; color: var(--text); margin: 0; padding: 0; }
+.text-30 { font-size: 30px; color: var(--text); margin: 0; padding: 0; -unity-font-style: bold; }
+.caption { font-size: 20px; color: var(--dim); margin: 0; padding: 0; }
+.dim { color: var(--dim); }
+.gold { color: var(--gold); }
+.bad { color: var(--bad); }
+.good { color: var(--good); }
+
+.panel {
+    background-color: var(--panel);
+    border-width: 3px;
+    border-color: var(--edge);
+    border-top-color: var(--edge-hi);
+    border-radius: 0;
+    padding: 8px 12px;
 }
-.marker.attack { background-color: rgba(150, 40, 30, 0.92); }
-.marker.empty { background-color: rgba(120, 110, 30, 0.92); color: rgb(255, 245, 200); }
-.side-panel {
-    position: absolute;
-    right: 8px;
-    top: 64px;
-    width: 450px;
-    padding: 6px;
-    background-color: rgba(10, 14, 18, 0.88);
-    border-radius: 4px;
+
+.icon {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-to-fit;
 }
-.panel-title { color: rgb(255, 255, 255); font-size: 18px; -unity-font-style: bold; margin: 2px 6px 6px 2px; -unity-text-align: middle-left; }
-.hint { color: rgb(170, 175, 180); font-size: 14px; margin: 2px 6px; -unity-text-align: middle-left; white-space: normal; }
-.front-row {
+.icon.small { width: 16px; height: 16px; }
+
+/* ---------- кнопки ---------- */
+.btn {
+    background-color: var(--panel);
+    border-width: 3px;
+    border-color: var(--edge);
+    border-top-color: var(--edge-hi);
+    border-radius: 0;
+    color: var(--text);
+    font-size: 20px;
+    min-height: 40px;
+    min-width: 40px;
+    margin: 0 4px;
+    padding: 0 8px;
     flex-direction: row;
     align-items: center;
-    min-height: 40px;
-    padding: 2px 4px;
-    margin-bottom: 3px;
-    background-color: rgba(40, 46, 52, 0.9);
-    border-radius: 3px;
-    border-width: 2px;
-    border-color: rgba(0, 0, 0, 0);
+    justify-content: center;
+    -unity-text-align: middle-center;
 }
-.front-row.selected { border-color: rgb(255, 255, 255); }
-.front-row.drop-target { border-color: rgb(110, 170, 240); }
-.swatch { width: 14px; height: 28px; margin-right: 6px; border-radius: 2px; }
-.front-name { color: rgb(240, 240, 240); font-size: 15px; width: 100px; -unity-text-align: middle-left; }
-.front-cell { color: rgb(215, 215, 215); font-size: 14px; margin: 0 4px; -unity-text-align: middle-left; }
-.terrain-strip { flex-direction: row; width: 54px; min-width: 54px; height: 10px; margin: 0 4px; flex-shrink: 0; }
-.terrain-plain { background-color: rgb(140, 190, 110); }
-.terrain-hills { background-color: rgb(180, 150, 90); }
-.terrain-mountains { background-color: rgb(140, 140, 150); }
-.order-icon { font-size: 14px; width: 70px; -unity-text-align: middle-left; }
-.order-attack { color: rgb(255, 130, 110); }
-.order-hold { color: rgb(150, 200, 255); }
-.order-empty { color: rgb(240, 210, 90); }
-.bottom-panel {
-    position: absolute;
-    left: 8px;
-    right: 466px;
-    bottom: 8px;
-    padding: 6px;
-    background-color: rgba(10, 14, 18, 0.88);
-    border-radius: 4px;
-}
-.formations-bar { flex-direction: row; align-items: center; flex-wrap: wrap; }
-.formations-list { min-height: 170px; }
-.formations-list > .unity-scroll-view__content-viewport > .unity-scroll-view__content-container { flex-direction: row; }
-.card {
-    width: 210px;
-    padding: 6px;
-    margin: 4px;
-    background-color: rgba(40, 46, 52, 0.95);
-    border-radius: 4px;
-    border-width: 2px;
-    border-color: rgba(0, 0, 0, 0);
-}
-.card.selected { border-color: rgb(255, 255, 255); }
-.card-title { color: rgb(255, 255, 255); font-size: 16px; -unity-font-style: bold; }
-.card-text { color: rgb(215, 215, 215); font-size: 14px; white-space: normal; }
-.bar-bg { height: 8px; margin: 4px 0; background-color: rgb(60, 64, 70); }
-.bar-fill { height: 8px; background-color: rgb(110, 190, 110); }
-.bar-fill.low { background-color: rgb(220, 110, 80); }
-.card-row { flex-direction: row; }
-.card .btn { min-height: 32px; min-width: 32px; font-size: 14px; padding: 0 6px; margin: 2px; flex-grow: 1; }
-.front-plate { left: 16px; top: 600px; max-width: 1000px; }
+.btn:hover { border-color: var(--accent); }
+.btn:active { background-color: rgba(63, 102, 217, 0.35); }
+.btn.active { background-color: rgba(63, 102, 217, 0.35); border-color: var(--accent); }
+.btn.disabled-look { color: var(--dim); background-color: rgba(30, 34, 44, 0.92); }
+.btn > .icon { margin-right: 4px; }
 
-/* Спека 02a §5.7: значки столиц и подписи государств на карте. */
+/* ---------- карточка нации ---------- */
+.nation-card {
+    position: absolute;
+    left: 16px; top: 16px;
+    width: 320px; height: 76px;
+    flex-direction: row;
+    align-items: center;
+}
+.nation-swatch {
+    width: 48px; height: 40px;
+    border-width: 3px;
+    border-color: rgb(255, 255, 255);
+    margin-right: 12px;
+}
+.nation-names { flex-grow: 1; }
+.you-badge {
+    font-size: 20px;
+    -unity-font-style: bold;
+    padding: 2px 8px;
+    border-width: 3px;
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+/* ---------- HUD ---------- */
+.hud {
+    position: absolute;
+    top: 16px; left: 352px; right: 360px;
+    height: 76px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-around;
+    padding: 4px 12px;
+}
+.hud-group { flex-direction: row; align-items: center; margin: 0 8px; }
+.hud-group > .icon { margin-right: 8px; }
+.hud-text { justify-content: center; }
+.hud-values { flex-direction: row; align-items: flex-end; }
+.hud-values > Label { margin-right: 8px; }
+.hud-territory { flex-grow: 1; max-width: 460px; }
+.territory-text { flex-grow: 1; }
+.goal-caption { margin-left: auto; }
+.land-bar {
+    height: 20px;
+    background-color: rgb(40, 46, 58);
+    border-width: 2px;
+    border-color: rgb(12, 14, 18);
+    flex-direction: row;
+    margin-top: 2px;
+}
+.land-fill { height: 100%; background-color: var(--accent); }
+.land-share { position: absolute; left: 4px; top: -3px; font-size: 20px; color: var(--text); -unity-font-style: bold; -unity-text-outline-width: 1px; -unity-text-outline-color: rgb(12, 14, 18); }
+.land-goal { position: absolute; width: 4px; top: -6px; bottom: -6px; background-color: var(--gold); }
+.land-leader {
+    position: absolute;
+    top: -12px;
+    width: 12px; height: 12px;
+    rotate: 45deg;
+    border-width: 2px;
+    border-color: rgb(12, 14, 18);
+}
+.leader-label { font-size: 20px; white-space: nowrap; margin-left: 12px; }
+
+/* ---------- скорость ---------- */
+.speed {
+    position: absolute;
+    top: 16px; right: 16px;
+    height: 76px;
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 8px;
+}
+.speed-btn { width: 56px; height: 52px; margin: 0 2px; font-size: 24px; }
+.speed-btn.gear { width: 44px; font-size: 20px; }
+.debug-panel {
+    position: absolute;
+    top: 100px; right: 16px;
+    max-width: 900px;
+}
+.debug-row { flex-direction: row; align-items: center; margin-top: 4px; }
+.status { font-size: 20px; color: var(--dim); }
+.seed { min-width: 200px; margin: 0 4px; font-size: 20px; }
+.seed > Label { color: var(--text); min-width: 40px; }
+
+/* ---------- фронты ---------- */
+.fronts-panel {
+    position: absolute;
+    top: 108px; right: 16px;
+    width: 400px;
+}
+.panel-title { margin-bottom: 8px; }
+.front-row {
+    flex-direction: column;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+    background-color: rgb(36, 44, 58);
+    border-width: 2px;
+    border-color: rgb(12, 14, 18);
+}
+.front-row:hover { border-color: var(--accent); }
+.front-row.selected { border-color: var(--gold); border-width: 3px; }
+.front-row.drop-target { border-color: var(--accent); }
+.front-top { flex-direction: row; align-items: center; height: 32px; }
+.front-name { font-size: 20px; color: var(--text); -unity-font-style: bold; flex-grow: 1; margin-left: 8px; }
+.front-order { width: 32px; height: 32px; }
+.front-verdict { font-size: 20px; margin-left: 8px; }
+.swatch { width: 24px; height: 24px; border-width: 2px; border-color: rgb(12, 14, 18); }
+.front-bottom { flex-direction: row; align-items: center; margin-top: 4px; }
+.pressure {
+    flex-direction: row;
+    flex-grow: 1;
+    height: 12px;
+    border-width: 2px;
+    border-color: rgb(10, 10, 14);
+}
+.pressure > VisualElement { height: 100%; }
+.terrain-strip {
+    flex-direction: row;
+    width: 80px;
+    height: 12px;
+    margin-left: 8px;
+    border-width: 2px;
+    border-color: rgb(10, 10, 14);
+}
+.terrain-plain { background-color: rgb(118, 176, 72); }
+.terrain-hills { background-color: rgb(140, 118, 70); }
+.terrain-mountains { background-color: rgb(180, 176, 172); }
+
+/* ---------- плашка фронта ---------- */
+.front-plate {
+    position: absolute;
+    width: 420px;
+    border-color: var(--gold);
+    padding: 8px 12px 12px 12px;
+}
+.plate-row { flex-direction: row; align-items: center; margin-top: 4px; }
+.plate-row > .icon { width: 32px; height: 32px; margin-right: 4px; }
+.plate-row > Label { margin-right: 8px; }
+.plate-verdict { margin-top: 8px; -unity-font-style: bold; white-space: normal; }
+.plate-pointer {
+    position: absolute;
+    width: 18px; height: 18px;
+    bottom: -12px;
+    left: 40px;
+    rotate: 45deg;
+    background-color: rgb(24, 29, 39);
+    border-right-width: 3px;
+    border-bottom-width: 3px;
+    border-color: var(--gold);
+}
+
+/* ---------- значки на карте ---------- */
 .capital-star { position: absolute; }
 .country-label {
     position: absolute;
     color: rgb(255, 255, 255);
     font-size: 30px;
-    -unity-font-style: bold;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: rgb(20, 18, 26);
+    text-shadow: 2px 2px 0 rgb(20, 18, 26);
     white-space: nowrap;
     padding: 0;
     margin: 0;
 }
+.hq-marker {
+    position: absolute;
+    flex-direction: row;
+    align-items: center;
+    padding: 0 4px 0 0;
+    background-color: rgba(24, 29, 39, 0.85);
+    border-width: 2px;
+    border-color: rgb(12, 14, 18);
+}
+.hq-marker > Label { font-size: 20px; color: var(--text); -unity-font-style: bold; margin: 0; padding: 0; }
+.hq-marker.attack { border-color: var(--bad); }
+.hq-marker.empty { border-color: var(--gold); background-color: rgba(24, 29, 39, 0.6); }
+
+/* ---------- соединения ---------- */
+.formations-panel {
+    position: absolute;
+    left: 392px; right: 16px; bottom: 16px;
+    max-width: 1140px;
+    padding: 8px 12px;
+}
+.formations-bar { flex-direction: row; align-items: center; margin-bottom: 8px; }
+.formations-bar > .panel-title { margin: 0 12px 0 0; }
+.assign-hint { margin-left: 8px; flex-shrink: 1; white-space: normal; }
+.formations-list { height: 176px; }
+.formations-list .unity-scroll-view__content-container { flex-direction: row; }
+.card {
+    width: 220px;
+    height: 164px;
+    margin-right: 8px;
+    padding: 4px 8px;
+    background-color: rgb(36, 44, 58);
+    border-width: 2px;
+    border-color: rgb(12, 14, 18);
+}
+.card:hover { border-color: var(--edge-hi); }
+.card.selected { border-color: var(--accent); border-width: 3px; background-color: rgb(40, 52, 80); }
+.card-head { flex-direction: row; align-items: center; justify-content: space-between; height: 32px; }
+.card-comp { flex-direction: row; align-items: center; }
+.card-comp > .icon { width: 24px; height: 24px; }
+.card-comp > Label { font-size: 20px; margin: 0 4px 0 0; padding: 0; }
+.bar-bg { height: 8px; background-color: rgb(40, 46, 58); margin: 4px 0; border-width: 1px; border-color: rgb(12, 14, 18); }
+.bar-fill { height: 100%; background-color: var(--good); }
+.bar-fill.low { background-color: var(--bad); }
+.card-where { font-size: 20px; color: var(--dim); margin: 0; padding: 0; overflow: hidden; white-space: nowrap; }
+.card-row { flex-direction: row; margin-top: 4px; }
+.card-row > .btn { flex-grow: 1; flex-basis: 0; min-height: 32px; height: 32px; margin: 0 2px; padding: 0 2px; font-size: 20px; }
+.card-row > .btn > .icon { width: 24px; height: 24px; }
+
+/* ---------- сводка ---------- */
+.feed {
+    position: absolute;
+    left: 16px; bottom: 16px;
+    width: 360px;
+    flex-direction: column-reverse;
+}
+.feed-card {
+    height: 64px;
+    margin-top: 8px;
+    padding: 4px 8px 4px 16px;
+    justify-content: center;
+}
+.feed-stripe { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; }
+.feed-head { font-size: 20px; -unity-font-style: bold; margin: 0; padding: 0; }
+.feed-body { font-size: 20px; color: var(--text); margin: 0; padding: 0; white-space: nowrap; overflow: hidden; }
+.feed-card.urgent { border-color: var(--bad); }
+.feed-card.urgent .feed-stripe { background-color: var(--bad); }
+.feed-card.urgent .feed-head { color: var(--bad); }
+.feed-card.loss { border-color: rgb(244, 170, 60); }
+.feed-card.loss .feed-stripe { background-color: rgb(244, 170, 60); }
+.feed-card.loss .feed-head { color: rgb(244, 170, 60); }
+.feed-card.report .feed-stripe { background-color: rgb(200, 204, 214); }
+.feed-card.report .feed-head { color: rgb(200, 204, 214); }
+
+/* ---------- подсказки ---------- */
+.tip {
+    position: absolute;
+    bottom: 236px; left: 392px;
+    max-width: 640px;
+    border-color: var(--gold);
+    white-space: normal;
+}
+.pixel-info {
+    position: absolute;
+    top: 100px; left: 16px;
+    max-width: 420px;
+    white-space: normal;
+}
+.toast {
+    position: absolute;
+    top: 100px;
+    left: 30%; right: 30%;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.hover {
+    position: absolute;
+    max-width: 520px;
+    white-space: normal;
+    font-size: 20px;
+    border-color: var(--edge-hi);
+}
+
+/* ---------- экран конца ---------- */
+.end-screen {
+    position: absolute;
+    left: 0; right: 0; top: 0; bottom: 0;
+    background-color: rgba(0, 0, 0, 0.55);
+    align-items: center;
+    justify-content: center;
+}
+.end-box { padding: 24px 32px; align-items: center; }
+.end-title { font-size: 60px; color: var(--text); -unity-font-style: bold; margin-bottom: 8px; }
+.end-buttons { flex-direction: row; margin-top: 16px; }
+.end-buttons > .btn { padding: 0 16px; height: 48px; }

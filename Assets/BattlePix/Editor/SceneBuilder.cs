@@ -28,6 +28,8 @@ namespace BattlePix.Editor
         {
             var material = EnsureMaterial();
             var panelSettings = EnsurePanelSettings();
+            EnsureFont();
+            AssetDatabase.ImportAsset(Root + "/UI/Game.uss", ImportAssetOptions.ForceUpdate); // ссылка на шрифт в USS
             var uxml = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(UxmlPath);
             if (uxml == null) throw new FileNotFoundException(UxmlPath);
 
@@ -105,6 +107,34 @@ namespace BattlePix.Editor
             return mat;
         }
 
+        const string FontPath = Root + "/UI/Fonts/Tiny5-Variable.ttf";
+        const string FontAssetPath = Root + "/UI/Fonts/Tiny5.asset";
+
+        /// <summary>
+        /// FontAsset Tiny5 для UI Toolkit (спека 02a §4.4): растр без SDF, атлас с точечной фильтрацией, динамический.
+        /// На него ссылается Game.uss (-unity-font-definition).
+        /// </summary>
+        static void EnsureFont()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<UnityEngine.TextCore.Text.FontAsset>(FontAssetPath);
+            if (existing != null) return;
+            var font = AssetDatabase.LoadAssetAtPath<Font>(FontPath);
+            if (font == null) throw new FileNotFoundException(FontPath);
+            var fa = UnityEngine.TextCore.Text.FontAsset.CreateFontAsset(font, 20, 2,
+                UnityEngine.TextCore.LowLevel.GlyphRenderMode.RASTER_HINTED, 1024, 1024);
+            fa.name = "Tiny5";
+            AssetDatabase.CreateAsset(fa, FontAssetPath);
+            foreach (var t in fa.atlasTextures)
+            {
+                if (t == null) continue;
+                t.filterMode = FilterMode.Point;
+                if (!AssetDatabase.Contains(t)) AssetDatabase.AddObjectToAsset(t, fa);
+            }
+            if (fa.material != null && !AssetDatabase.Contains(fa.material)) AssetDatabase.AddObjectToAsset(fa.material, fa);
+            EditorUtility.SetDirty(fa);
+            AssetDatabase.SaveAssets();
+        }
+
         static PanelSettings EnsurePanelSettings()
         {
             var ps = AssetDatabase.LoadAssetAtPath<PanelSettings>(PanelSettingsPath);
@@ -113,11 +143,9 @@ namespace BattlePix.Editor
                 ps = ScriptableObject.CreateInstance<PanelSettings>();
                 AssetDatabase.CreateAsset(ps, PanelSettingsPath);
             }
-            // UI под ПК (спека 01b §10): масштаб от экрана, эталон 1920×1080. Тач и физический размер — при мобильном порте.
-            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
-            ps.referenceResolution = new Vector2Int(1920, 1080);
-            ps.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
-            ps.match = 0.5f;
+            // UI под ПК (спека 02a §9): постоянный размер пикселя, целый масштаб k = max(1, высота / 1080) ставит игра.
+            ps.scaleMode = PanelScaleMode.ConstantPixelSize;
+            ps.scale = 1;
             ps.themeStyleSheet = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(ThemePath);
             if (ps.themeStyleSheet == null) throw new FileNotFoundException(ThemePath);
             EditorUtility.SetDirty(ps);
