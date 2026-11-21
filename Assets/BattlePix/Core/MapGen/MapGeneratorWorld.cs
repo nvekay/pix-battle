@@ -12,6 +12,17 @@ namespace BattlePix.Core
             for (int i = 0; i < r.Terrain.Length; i++) terrain[i] = r.Terrain[i];
             world.TotalLand = r.LandCount;
 
+            // Слои для картинки (спека 02a §5.1): высота без вызовов потока MapGen, биомы из своего потока.
+            var elevation = Elevation(r.Bin);
+            var biome = Biomes(world.Width, world.Height, r.Terrain, r.Bin, elevation, rules.MapGen, ref world.Rng.Get(RngStream.Biome));
+            var elevationRW = world.ElevationRW;
+            var biomeRW = world.BiomeRW;
+            for (int i = 0; i < elevation.Length; i++)
+            {
+                elevationRW[i] = elevation[i];
+                biomeRW[i] = biome[i];
+            }
+
             // Стартовые пятна по id и стартовые ресурсы.
             var nations = world.NationsRW;
             var owner = world.OwnerRW;

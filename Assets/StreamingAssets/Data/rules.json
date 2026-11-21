@@ -15,7 +15,18 @@
     "mapRetries": 8,
     "capitalRetries": 16,
     "hillsShare_bp": 2500,
-    "mountainsShare_bp": 1000
+    "mountainsShare_bp": 1000,
+    "biomes": {
+      "moistureCells": [64, 32, 16, 8],
+      "forestMoist_bp": 5800,
+      "steppeMoist_bp": 4200,
+      "desertMoist_bp": 3300,
+      "desertTemp_bp": 5500,
+      "tundraTemp_bp": 2000,
+      "snowShareOfMountains_bp": 3500,
+      "hillsForestMoist_bp": 6200,
+      "beachMaxDist": 1
+    }
   },
   "front": {
     "expandChance_bp": 70,

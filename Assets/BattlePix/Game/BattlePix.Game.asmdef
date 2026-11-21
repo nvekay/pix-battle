@@ -4,6 +4,8 @@
     "references": [
         "BattlePix.Core",
         "Unity.Collections",
+        "Unity.Mathematics",
+        "Unity.Burst",
         "Unity.RenderPipelines.Universal.Runtime",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.InputSystem"

@@ -1,0 +1,192 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b882da494a30e79438df1a9200f8c07e, type: 3}
+  m_Name: DecorAtlas
+  m_EditorClassIdentifier: BattlePix.Game::BattlePix.Game.DecorAtlas
+  Texture: {fileID: 2800000, guid: 3968c97a1e651e346861d40120e27037, type: 3}
+  Sprites:
+  - Name: Tree
+    Rect:
+      x: 0
+      y: 0
+      width: 7
+      height: 9
+  - Name: TreeL
+    Rect:
+      x: 8
+      y: 0
+      width: 9
+      height: 12
+  - Name: PineL
+    Rect:
+      x: 18
+      y: 0
+      width: 9
+      height: 11
+  - Name: Tree2
+    Rect:
+      x: 28
+      y: 0
+      width: 5
+      height: 5
+  - Name: Pine
+    Rect:
+      x: 34
+      y: 0
+      width: 5
+      height: 9
+  - Name: SPine
+    Rect:
+      x: 40
+      y: 0
+      width: 5
+      height: 8
+  - Name: Cact
+    Rect:
+      x: 46
+      y: 0
+      width: 3
+      height: 6
+  - Name: Rock
+    Rect:
+      x: 50
+      y: 0
+      width: 5
+      height: 4
+  - Name: Bush
+    Rect:
+      x: 56
+      y: 0
+      width: 4
+      height: 3
+  Icons: {fileID: 2800000, guid: b95f3cf1c9586a84e933a907f5827349, type: 3}
+  IconEntries:
+  - Name: budget
+    Rect:
+      x: 0
+      y: 0
+      width: 16
+      height: 16
+  - Name: army
+    Rect:
+      x: 17
+      y: 0
+      width: 16
+      height: 16
+  - Name: armor
+    Rect:
+      x: 34
+      y: 0
+      width: 16
+      height: 16
+  - Name: infantry
+    Rect:
+      x: 51
+      y: 0
+      width: 16
+      height: 16
+  - Name: hq
+    Rect:
+      x: 68
+      y: 0
+      width: 16
+      height: 16
+  - Name: attack
+    Rect:
+      x: 85
+      y: 0
+      width: 16
+      height: 16
+  - Name: defend
+    Rect:
+      x: 102
+      y: 0
+      width: 16
+      height: 16
+  - Name: frontOpen
+    Rect:
+      x: 119
+      y: 0
+      width: 16
+      height: 16
+  - Name: capital
+    Rect:
+      x: 136
+      y: 0
+      width: 16
+      height: 16
+  - Name: territory
+    Rect:
+      x: 153
+      y: 0
+      width: 16
+      height: 16
+  - Name: time
+    Rect:
+      x: 170
+      y: 0
+      width: 16
+      height: 16
+  - Name: pause
+    Rect:
+      x: 187
+      y: 0
+      width: 16
+      height: 16
+  - Name: play
+    Rect:
+      x: 204
+      y: 0
+      width: 16
+      height: 16
+  - Name: plains
+    Rect:
+      x: 221
+      y: 0
+      width: 16
+      height: 16
+  - Name: hills
+    Rect:
+      x: 238
+      y: 0
+      width: 16
+      height: 16
+  - Name: mountains
+    Rect:
+      x: 255
+      y: 0
+      width: 16
+      height: 16
+  - Name: urgent
+    Rect:
+      x: 272
+      y: 0
+      width: 16
+      height: 16
+  - Name: loss
+    Rect:
+      x: 289
+      y: 0
+      width: 16
+      height: 16
+  - Name: report
+    Rect:
+      x: 306
+      y: 0
+      width: 16
+      height: 16
+  - Name: rear
+    Rect:
+      x: 323
+      y: 0
+      width: 16
+      height: 16

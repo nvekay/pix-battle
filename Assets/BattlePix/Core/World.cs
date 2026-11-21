@@ -27,6 +27,21 @@ namespace BattlePix.Core
         Mountains = 3,
     }
 
+    /// <summary>Биом для декора (спека 02a §4.1). На фронт не влияет. Значения только дописываются.</summary>
+    public enum Biome : byte
+    {
+        None = 0,
+        Beach = 1,
+        Grass = 2,
+        Forest = 3,
+        Steppe = 4,
+        Desert = 5,
+        Tundra = 6,
+        Hills = 7,
+        Mountain = 8,
+        Snow = 9,
+    }
+
     public struct NationState
     {
         public byte Id;
@@ -114,6 +129,8 @@ namespace BattlePix.Core
 
         NativeArray<byte> _owner;
         NativeArray<byte> _terrain;
+        NativeArray<byte> _elevation;
+        NativeArray<byte> _biome;
         NativeArray<NationState> _nations;
 
         // Массивы правил. В мире Фундамента (без правил) у них нулевая длина.
@@ -171,6 +188,8 @@ namespace BattlePix.Core
             int n = width * height;
             _owner = new NativeArray<byte>(n, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _terrain = new NativeArray<byte>(n, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _elevation = new NativeArray<byte>(n, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _biome = new NativeArray<byte>(n, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _nations = new NativeArray<NationState>(nationCount, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             for (int i = 0; i < nationCount; i++)
                 _nations[i] = new NationState { Id = (byte)(i + 1), Alive = 1, Capital = -1, DiedAtTick = -1 };
@@ -197,6 +216,10 @@ namespace BattlePix.Core
 
         public NativeArray<byte>.ReadOnly Owner => _owner.AsReadOnly();
         public NativeArray<byte>.ReadOnly Terrain => _terrain.AsReadOnly();
+        /// <summary>Высота 0..255 на каждый пиксель, вода тоже (спека 02a §5.1). Согласована с полосами Terrain. Не меняется.</summary>
+        public NativeArray<byte>.ReadOnly Elevation => _elevation.AsReadOnly();
+        /// <summary>enum Biome на пиксель, для картинки. Не меняется.</summary>
+        public NativeArray<byte>.ReadOnly Biome => _biome.AsReadOnly();
         public NativeArray<NationState>.ReadOnly Nations => _nations.AsReadOnly();
         public NativeArray<Formation>.ReadOnly Formations => _formations.AsReadOnly();
         public NativeArray<Battalion>.ReadOnly Battalions => _battalions.AsReadOnly();
@@ -217,6 +240,8 @@ namespace BattlePix.Core
         // Доступ на запись — только внутри ядра.
         internal ref NativeArray<byte> OwnerRW => ref _owner;
         internal ref NativeArray<byte> TerrainRW => ref _terrain;
+        internal ref NativeArray<byte> ElevationRW => ref _elevation;
+        internal ref NativeArray<byte> BiomeRW => ref _biome;
         internal ref NativeArray<NationState> NationsRW => ref _nations;
         internal ref NativeArray<Formation> FormationsRW => ref _formations;
         internal ref NativeArray<Battalion> BattalionsRW => ref _battalions;
@@ -318,6 +343,8 @@ namespace BattlePix.Core
             IsDisposed = true;
             if (_owner.IsCreated) _owner.Dispose();
             if (_terrain.IsCreated) _terrain.Dispose();
+            if (_elevation.IsCreated) _elevation.Dispose();
+            if (_biome.IsCreated) _biome.Dispose();
             if (_nations.IsCreated) _nations.Dispose();
             if (_formations.IsCreated) _formations.Dispose();
             if (_battalions.IsCreated) _battalions.Dispose();

@@ -12,6 +12,8 @@ namespace BattlePix.Core
         internal sealed class Result
         {
             public byte[] Terrain;
+            /// <summary>Корзина высоты 0..Bins − 1 каждого пикселя этой карты (спека 02a §5.1).</summary>
+            public int[] Bin;
             public int[] Capitals;
             public int LandCount;
             public MapGenStats Stats;
@@ -48,7 +50,7 @@ namespace BattlePix.Core
                 {
                     long target = (long)mg.LandShare_bp * n / 10000;
                     if (!bestLandOk && (best == null || System.Math.Abs(count - target) < System.Math.Abs(best.LandCount - target)))
-                        best = new Result { Terrain = (byte[])land.Clone(), LandCount = count };
+                        best = new Result { Terrain = (byte[])land.Clone(), Bin = (int[])bin.Clone(), LandCount = count };
                     continue;
                 }
 
@@ -73,6 +75,7 @@ namespace BattlePix.Core
                     best = new Result
                     {
                         Terrain = (byte[])land.Clone(),
+                        Bin = (int[])bin.Clone(),
                         Capitals = caps,
                         LandCount = count,
                         Stats = new MapGenStats { Fairness_bp = ratio },
@@ -119,11 +122,22 @@ namespace BattlePix.Core
 
         static void Noise(int w, int h, MapGenRules mg, ref Pcg32 rng, long[] heights)
         {
+            var cells = new int[mg.Octaves];
+            for (int o = 0; o < cells.Length; o++) cells[o] = mg.BaseCellPx >> o;
+            Fbm(w, h, cells, mg.Persistence_bp, ref rng, heights);
+        }
+
+        /// <summary>
+        /// Value noise по октавам cells (размер клетки решётки в px), амплитуда ×persistence на октаву. Целые.
+        /// Узлы решётки — построчно из rng, октава за октавой. Высота (поток MapGen) и влажность (поток Biome) — одна функция.
+        /// </summary>
+        internal static void Fbm(int w, int h, int[] cells, int persistence_bp, ref Pcg32 rng, long[] heights)
+        {
             System.Array.Clear(heights, 0, heights.Length);
             long amp = 65536;
-            for (int o = 0; o < mg.Octaves; o++)
+            for (int o = 0; o < cells.Length; o++)
             {
-                int cell = mg.BaseCellPx >> o;
+                int cell = cells[o];
                 int gw = (w + cell - 1) / cell + 1;
                 int gh = (h + cell - 1) / cell + 1;
                 var nodes = new int[gw * gh];
@@ -150,7 +164,7 @@ namespace BattlePix.Core
                         heights[y * w + x] += val * amp / 65536;
                     }
                 }
-                amp = amp * mg.Persistence_bp / 10000;
+                amp = amp * persistence_bp / 10000;
             }
         }
 
@@ -172,7 +186,7 @@ namespace BattlePix.Core
 
         // ---------- 3–4. Порог и один континент ----------
 
-        const int Bins = 1024;
+        internal const int Bins = 1024;
 
         /// <summary>
         /// Высоты нормируются в корзины 0..1023. Порог — корзина: выше неё суша. Остаётся только самый большой
