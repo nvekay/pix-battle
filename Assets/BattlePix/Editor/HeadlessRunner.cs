@@ -237,6 +237,8 @@ namespace BattlePix.Editor
                 var attackSec = new int[nationCount];
                 var focusSec = new int[nationCount];
                 var peakDivisions = new int[nationCount];
+                var exhaustedSec = new int[nationCount];
+                var rotations = new int[nationCount];
                 while (!w.IsOver)
                 {
                     if (w.Tick == crashAtTick)
@@ -248,6 +250,8 @@ namespace BattlePix.Editor
                     if (!sim.LastStepWroteCheckpoint) perTick.Add(sw.Elapsed.TotalMilliseconds);
 
                     if (r.FirstContactTick < 0 && AnyContact(w)) r.FirstContactTick = w.Tick;
+                    for (int i = 0; i < nationCount; i++)
+                        if (w.Nations[i].Alive != 0) rotations[i] += ArmyStats.RotationsThisTick(w, (byte)(i + 1));
                     if (w.Tick % tps == 0)
                         for (int i = 0; i < nationCount; i++)
                         {
@@ -257,6 +261,7 @@ namespace BattlePix.Editor
                             if (nat.Divisions > peakDivisions[i]) peakDivisions[i] = nat.Divisions;
                             FocusState(w, (byte)(i + 1), out bool attacking, out bool focus);
                             if (attacking) attackSec[i]++;
+                            if (attacking && ArmyStats.AllAttackersExhausted(w, (byte)(i + 1))) exhaustedSec[i]++;
                             if (focus) focusSec[i]++;
                         }
                     if (w.Tick == 300 * tps)
@@ -297,6 +302,8 @@ namespace BattlePix.Editor
                         PeakDivisions = peakDivisions[i],
                         AttackTime_bp = aliveSec[i] > 0 ? (int)((long)attackSec[i] * 10000 / aliveSec[i]) : 0,
                         FocusTime_bp = aliveSec[i] > 0 ? (int)((long)focusSec[i] * 10000 / aliveSec[i]) : 0,
+                        ExhaustedTime_bp = attackSec[i] > 0 ? (int)((long)exhaustedSec[i] * 10000 / attackSec[i]) : 0,
+                        Rotations = rotations[i],
                         NeighboursAt5 = neighbours5[i],
                     };
                 }
@@ -548,6 +555,45 @@ namespace BattlePix.Editor
         public string BaselineSource;
     }
 
+    /// <summary>Счётчики армии для отчёта и -analyze (спека 01c §7). Только читают мир.</summary>
+    public static class ArmyStats
+    {
+        /// <summary>
+        /// Сколько дивизий нации пришли на фронт в этот тик (ArriveTick == Tick, не выдохлись), где уже стоит выдохшаяся своя.
+        /// Вызывать после каждого Step.
+        /// </summary>
+        public static int RotationsThisTick(World w, byte self)
+        {
+            int c = 0, max = w.MaxDivisionsPerNation;
+            for (int k = 0; k < max; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (!w.OnFront(v) || v.ArriveTick != w.Tick || v.Exhausted != 0) continue;
+                for (int j = 0; j < max; j++)
+                {
+                    if (j == k) continue;
+                    var u = w.DivisionAt(w.DivisionSlot(self, j));
+                    if (w.OnFront(u) && u.Front == v.Front && u.Exhausted != 0) { c++; break; }
+                }
+            }
+            return c;
+        }
+
+        /// <summary>Есть дивизии на месте на фронтах с приказом «наступление», и все они выдохлись.</summary>
+        public static bool AllAttackersExhausted(World w, byte self)
+        {
+            int attackers = 0;
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (!w.OnFront(v) || w.FrontOrderOf(self, v.Front) != Orders.Attack) continue;
+                if (v.Exhausted == 0) return false;
+                attackers++;
+            }
+            return attackers > 0;
+        }
+    }
+
     public sealed class NationResult
     {
         public int Id;
@@ -558,10 +604,14 @@ namespace BattlePix.Editor
         public int RecruitedArmorDiv;
         public int DivisionsLost;
         public int PeakDivisions;
-        /// <summary>Доля секунд жизни, когда хоть одно соединение наступает, bp.</summary>
+        /// <summary>Доля секунд жизни, когда есть фронт с приказом «наступление» и дивизиями на месте, bp.</summary>
         public int AttackTime_bp;
-        /// <summary>Доля секунд жизни с «фокусом»: наступление на одном фронте и ни одного наступающего на другом, bp.</summary>
+        /// <summary>Доля секунд жизни с «фокусом»: наступление на одних фронтах, а не на всех существующих, bp.</summary>
         public int FocusTime_bp;
+        /// <summary>Доля секунд в наступлении, когда все наступающие дивизии нации выдохлись, bp (01c §7).</summary>
+        public int ExhaustedTime_bp;
+        /// <summary>Сколько раз свежая дивизия пришла на фронт, где стояла выдохшаяся.</summary>
+        public int Rotations;
         /// <summary>Живых соседей с общей границей на 5-й минуте.</summary>
         public int NeighboursAt5;
     }
@@ -787,9 +837,12 @@ namespace BattlePix.Editor
                 sb.AppendLine(string.Format(inv, "- Доля танковых в наборе: {0:0.0}%", recruited > 0 ? 100.0 * all.Sum(x => (long)x.RecruitedArmorDiv) / recruited : 0));
                 sb.AppendLine(string.Format(inv, "- Время в наступлении (attackTime): в среднем по нациям {0:0.0}%; фокус (focusTime): {1:0.0}%",
                     all.Average(x => x.AttackTime_bp) / 100.0, all.Average(x => x.FocusTime_bp) / 100.0));
+                sb.AppendLine(string.Format(inv, "- Выдохлись (exhaustedTime, доля времени наступления, когда все наступающие выдохлись): {0:0.0}%; ротаций на нацию за партию: {1:0.0}",
+                    all.Average(x => x.ExhaustedTime_bp) / 100.0, all.Average(x => x.Rotations)));
                 foreach (var g in done.SelectMany(r => r.Nations).GroupBy(x => x.Profile).OrderBy(g => g.Key))
-                    sb.AppendLine(string.Format(inv, "- Профиль {0}: attackTime {1:0.0}%, focusTime {2:0.0}%, танковых {3:0.0} / пехотных {4:0.0}, потери дивизий {5:0.0}",
+                    sb.AppendLine(string.Format(inv, "- Профиль {0}: attackTime {1:0.0}%, focusTime {2:0.0}%, exhaustedTime {3:0.0}%, ротаций {4:0.0}, танковых {5:0.0} / пехотных {6:0.0}, потери дивизий {7:0.0}",
                         g.Key, g.Average(x => x.AttackTime_bp) / 100.0, g.Average(x => x.FocusTime_bp) / 100.0,
+                        g.Average(x => x.ExhaustedTime_bp) / 100.0, g.Average(x => x.Rotations),
                         g.Average(x => x.RecruitedArmorDiv), g.Average(x => x.RecruitedInfDiv), g.Average(x => x.DivisionsLost)));
                 sb.AppendLine();
             }

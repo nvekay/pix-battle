@@ -86,6 +86,17 @@ namespace BattlePix.Core
                         return Issue(self, CommandType.AssignDivision, k, d, out cmd);
                     }
 
+                    // 3. Ротация: на цели выдохшаяся, в тылу свежая — свежую на цель. Следующей мыслью — выдохшуюся в тыл,
+                    //    если на цели нет угрозы и туда уже идёт (или стоит) невыдохшаяся.
+                    int tired = ExhaustedOn(w, self, target);
+                    if (tired >= 0)
+                    {
+                        int fresh = FreshRear(w, self, p);
+                        if (fresh >= 0) return Issue(self, CommandType.AssignDivision, fresh, target, out cmd);
+                        if (_threat[target] < p.ThreatRatio_bp && HasRelief(w, self, target))
+                            return Issue(self, CommandType.AssignDivision, tired, 0, out cmd);
+                    }
+
                     // 4. Кулак: свежая готовая дивизия из тыла — на цель.
                     int rear = FreshRear(w, self, p);
                     if (rear >= 0) return Issue(self, CommandType.AssignDivision, rear, target, out cmd);
@@ -220,6 +231,28 @@ namespace BattlePix.Core
             {
                 var v = w.DivisionAt(w.DivisionSlot(self, k));
                 if (v.Alive != 0 && v.Front == d) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Первая выдохшаяся дивизия на месте на фронте с d, −1 — нет.</summary>
+        static int ExhaustedOn(World w, byte self, int d)
+        {
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (w.OnFront(v) && v.Front == d && v.Exhausted != 0) return k;
+            }
+            return -1;
+        }
+
+        /// <summary>На фронт с d уже идёт или стоит невыдохшаяся своя дивизия: смена пришла.</summary>
+        static bool HasRelief(World w, byte self, int d)
+        {
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (v.Alive != 0 && v.Front == d && v.Exhausted == 0) return true;
             }
             return false;
         }

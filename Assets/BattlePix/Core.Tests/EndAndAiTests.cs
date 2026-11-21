@@ -155,6 +155,33 @@ namespace BattlePix.Core.Tests
             }
         }
 
+        /// <summary>01c §4.8, правило 3: за партию ИИ хоть раз отводит выдохшуюся дивизию в тыл после смены.</summary>
+        [Test]
+        public void Ai_Rotates_ExhaustedDivisionGoesToRear()
+        {
+            using (var sim = TestData.Match(7, 15000))
+            {
+                int exhaustedSeen = 0, rotatedOut = 0;
+                var w = sim.World;
+                while (!w.IsOver)
+                {
+                    sim.Step();
+                    foreach (var c in sim.AppliedLastTick)
+                    {
+                        if (c.Type != CommandType.AssignDivision || c.B != 0) continue;
+                        var v = w.DivisionAt(w.DivisionSlot(c.Nation, c.A));
+                        if (v.Alive != 0 && v.Exhausted != 0) rotatedOut++;
+                    }
+                    if (w.Tick % 100 == 0)
+                        foreach (var v in w.Divisions.ToArray())
+                            if (v.Alive != 0 && v.Exhausted != 0) exhaustedSeen++;
+                }
+                TestContext.WriteLine($"exhausted samples {exhaustedSeen}, exhausted sent to rear {rotatedOut}");
+                Assert.Greater(exhaustedSeen, 0, "divisions exhaust in attack waves");
+                Assert.Greater(rotatedOut, 0, "AI rotates exhausted divisions out");
+            }
+        }
+
         [Test]
         public void IdleProfile_DoesNothing()
         {
