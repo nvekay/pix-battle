@@ -60,6 +60,8 @@ namespace BattlePix.Game
         void Start()
         {
             if (mainCamera == null) mainCamera = Camera.main;
+            // Свой экземпляр PanelSettings: масштаб k меняется в игре и не должен писаться в ассет.
+            if (uiDocument.panelSettings != null) uiDocument.panelSettings = Instantiate(uiDocument.panelSettings);
             BindUi();
             SetStatus("Загрузка данных…");
             StartCoroutine(GameData.Load(OnDataLoaded, err => SetStatus("Ошибка данных: " + err)));
@@ -76,7 +78,7 @@ namespace BattlePix.Game
             _names = new NationNames(nations);
             mapView.Init(_config.Width, _config.Height, _palette, data.Palette());
             _camera = new MapCamera(mainCamera, mapView, IsOverUi);
-            _hud = new GameHud(uiDocument.rootVisualElement, _rules, _config, _names, _palette, mapView, mainCamera, t => ShowToast(t));
+            _hud = new GameHud(uiDocument.rootVisualElement, _rules, _config, _names, _palette, mapView, mainCamera);
             _hud.FlyTo = w => _camera.FlyTo(w);
             _labels = new MapLabels(uiDocument.rootVisualElement.Q<VisualElement>("labels"), _names, _palette, mapView.Atlas, Human);
             // Сид новой партии — от времени запуска (адаптер, не ядро). Бенч и отладка задают его явно.
@@ -229,6 +231,11 @@ namespace BattlePix.Game
             var kb = UnityEngine.InputSystem.Keyboard.current;
             if ((kb != null && kb.escapeKey.wasPressedThisFrame) || _camera.RightClickCancel)
                 _hud.Cancel();
+            OnSpeedKeys(kb);
+            _hud.OnKeys(kb);
+            var mouse = UnityEngine.InputSystem.Mouse.current;
+            if (mouse != null) _hud.UpdateHover(mouse.position.ReadValue());
+            if (_panelScale != _camera.UiScale) ApplyUiScale();
 
             if (now - _tpsWindowStart >= 1f)
             {
@@ -328,8 +335,38 @@ namespace BattlePix.Game
             _mapArea.RegisterCallback<PointerDownEvent>(OnMapTap);
         }
 
+        int _panelScale;
+
+        /// <summary>UI под ПК (спека 02a §9): постоянный размер пикселя, целый масштаб k, как у камеры.</summary>
+        void ApplyUiScale()
+        {
+            _panelScale = _camera.UiScale;
+            var ps = uiDocument.panelSettings;
+            if (ps == null) return;
+            ps.scaleMode = PanelScaleMode.ConstantPixelSize;
+            ps.scale = _panelScale;
+        }
+
+        /// <summary>Space — пауза / продолжить, 1 / 2 / 3 — ×1 / ×2 / ×4.</summary>
+        void OnSpeedKeys(UnityEngine.InputSystem.Keyboard kb)
+        {
+            if (kb == null || _clock == null) return;
+            if (uiDocument.rootVisualElement.panel?.focusController?.focusedElement is TextField) return;
+            if (kb.spaceKey.wasPressedThisFrame)
+            {
+                if (_clock.Paused) SetSpeed(_lastSpeed);
+                else { _clock.Pause(); SetSpeedButtons(0); }
+            }
+            if (kb.digit1Key.wasPressedThisFrame) SetSpeed(1);
+            if (kb.digit2Key.wasPressedThisFrame) SetSpeed(2);
+            if (kb.digit3Key.wasPressedThisFrame) SetSpeed(4);
+        }
+
+        int _lastSpeed = 1;
+
         void SetSpeed(int speed)
         {
+            if (speed > 0) _lastSpeed = speed;
             _clock?.SetSpeed(speed);
             SetSpeedButtons(speed);
         }
@@ -355,24 +392,23 @@ namespace BattlePix.Game
             bool onMap = mapView.ScreenToCell(mainCamera, screen, out int x, out int y);
             if (_hud.OnMapClick(onMap, x, y)) return;
             _hud.HidePanels();
-            _pixelInfo.text = InfoText(_sim.World, x, y);
-            _pixelInfo.RemoveFromClassList("hidden");
+            _hud.ShowTip(InfoText(_sim.World, x, y), 3f);
         }
 
         string InfoText(World w, int x, int y)
         {
             int i = w.Index(x, y);
-            if (!w.IsLand(i)) return "Вода";
+            if (!w.IsLand(i)) return "Море";
 
             string terrain = TerrainNames[Math.Min(2, Math.Max(0, w.Terrain[i] - 1))];
             int o = w.Owner[i];
-            if (o == 0) return "Ничья земля · " + terrain;
+            if (o == 0) return "Ничья земля · " + terrain + ". Её занимают сами, без приказов";
             if (o == Human)
             {
                 var me = w.Nation(Human);
-                return $"Наша земля · {terrain} · батальонов {me.Battalions} · соединений {me.Formations}";
+                return $"Наша земля · {terrain} · {me.Battalions} бат. в {me.Formations} соединениях";
             }
-            return _names.Nominative(o) + " · " + terrain;
+            return _names.Full(o) + " · " + terrain;
         }
 
         static readonly string[] TerrainNames = { "равнина", "холмы", "горы" };
@@ -388,13 +424,13 @@ namespace BattlePix.Game
             {
                 case EndReason.HumanDefeated: reason = "Пала столица"; break;
                 case EndReason.Timeout:
-                    reason = win ? "Время вышло, крупнейшие — мы" : $"Время вышло, крупнейшие — {_names.Nominative(w.Winner)}";
+                    reason = win ? "Время вышло, больше всех земли у нас" : $"Время вышло, больше всех земли у {_names.Genitive(w.Winner)}";
                     break;
                 case EndReason.Conquest:
                     bool byShare = (long)w.Nation(w.Winner).Pixels * 10000 >= (long)_rules.End.VictoryShare_bp * w.TotalLand;
                     reason = win
                         ? (byShare ? $"Вы взяли {victory} суши" : "Все противники пали")
-                        : (byShare ? $"{_names.Nominative(w.Winner)} взяли {victory} суши" : $"{_names.Nominative(w.Winner)} остались одни");
+                        : (byShare ? $"{_names.Full(w.Winner)} взяла {victory} суши" : $"{_names.Full(w.Winner)} осталась одна");
                     break;
                 default: reason = w.EndReason.ToString(); break;
             }
@@ -402,7 +438,7 @@ namespace BattlePix.Game
             _endReason.text = reason;
             var me = w.Nation(Human);
             int minute = w.Tick / (60 * _config.TicksPerSecond);
-            _endStats.text = $"Минута {minute} · наша доля {(w.TotalLand > 0 ? (long)me.Pixels * 100 / w.TotalLand : 0)}%";
+            _endStats.text = $"Минута {minute} · наша доля суши {(w.TotalLand > 0 ? (long)me.Pixels * 100 / w.TotalLand : 0)}%";
             _endScreen.RemoveFromClassList("hidden");
         }
 
