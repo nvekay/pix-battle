@@ -21,6 +21,7 @@ namespace BattlePix.Core.Tests
             Assert.AreEqual(45000, r.DivisionCost(DivisionTypes.Infantry));
             Assert.AreEqual(95000, r.DivisionCost(DivisionTypes.Armor));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.End), Newtonsoft.Json.JsonConvert.SerializeObject(r.End));
+            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.War), Newtonsoft.Json.JsonConvert.SerializeObject(r.War));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Ai), Newtonsoft.Json.JsonConvert.SerializeObject(r.Ai));
             Assert.AreEqual("base", r.ProfileName(1));
         }

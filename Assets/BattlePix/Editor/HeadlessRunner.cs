@@ -149,8 +149,14 @@ namespace BattlePix.Editor
             foreach (var part in a.Get("-profile", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var kv = part.Split('=');
+                if (kv.Length == 2 && kv[0] == "all")
+                {
+                    // -profile all=no_claims: профиль всем нациям (абляция 02b §7).
+                    for (int n = 1; n <= rules.NationCount; n++) overrides.Add(new KeyValuePair<int, string>(n, kv[1]));
+                    continue;
+                }
                 if (kv.Length != 2 || !int.TryParse(kv[0], NumberStyles.None, CultureInfo.InvariantCulture, out int id))
-                    throw new ArgumentException("-profile expects <nationId>=<profile>, got " + part);
+                    throw new ArgumentException("-profile expects <nationId>=<profile> or all=<profile>, got " + part);
                 overrides.Add(new KeyValuePair<int, string>(id, kv[1]));
             }
             var runRules = rules;
@@ -250,6 +256,7 @@ namespace BattlePix.Editor
                 var peakDivisions = new int[nationCount];
                 var exhaustedSec = new int[nationCount];
                 var rotations = new int[nationCount];
+                var atWarSec = new int[nationCount];
                 while (!w.IsOver)
                 {
                     if (w.Tick == crashAtTick)
@@ -283,6 +290,7 @@ namespace BattlePix.Editor
                             if (attacking) attackSec[i]++;
                             if (attacking && ArmyStats.AllAttackersExhausted(w, (byte)(i + 1))) exhaustedSec[i]++;
                             if (focus) focusSec[i]++;
+                            if (WarSystem.Wars(w, (byte)(i + 1)) > 0) atWarSec[i]++;
                         }
                     if (w.Tick == 300 * tps)
                     {
@@ -306,6 +314,7 @@ namespace BattlePix.Editor
                 r.Winner = w.Winner;
                 r.Checkpoints = sim.Checkpoints.Count;
                 r.PixelsByNation = CountPixels(w);
+                WarStats.Fill(r, w, atWarSec, aliveSec);
                 r.Nations = new NationResult[w.NationCount];
                 for (int i = 0; i < w.NationCount; i++)
                 {
@@ -575,6 +584,47 @@ namespace BattlePix.Editor
         public string BaselineSource;
     }
 
+    /// <summary>Строки войны и мира для отчёта (02b §7): из журнала World.WarEvents и посекундной выборки.</summary>
+    public static class WarStats
+    {
+        public static void Fill(MatchResult r, World w, int[] atWarSec, int[] aliveSec)
+        {
+            r.Outcomes = new int[7];
+            r.WarLengthTicks = new List<int>();
+            var start = new Dictionary<int, int>();
+            foreach (var e in w.WarEvents)
+            {
+                int pair = Math.Min(e.A, e.D) * 256 + Math.Max(e.A, e.D);
+                switch (e.Kind)
+                {
+                    case WarEventKind.Declared:
+                        r.WarsDeclared++;
+                        if (e.Goal == WarGoals.Claims) r.ClaimsWars++; else r.ReparationsWars++;
+                        if (r.FirstWarTick < 0) r.FirstWarTick = e.Tick;
+                        start[pair] = e.Tick;
+                        break;
+                    case WarEventKind.Peace:
+                    case WarEventKind.EndedByDeath:
+                        r.Outcomes[(int)e.Outcome]++;
+                        r.SettledPixels += e.Pixels;
+                        if (start.TryGetValue(pair, out int t0)) r.WarLengthTicks.Add(e.Tick - t0);
+                        start.Remove(pair);
+                        break;
+                }
+            }
+            r.TributePaid_c = w.TributePaid;
+            long sum = 0;
+            int nations = 0;
+            for (int i = 0; i < atWarSec.Length; i++)
+            {
+                if (aliveSec[i] <= 0) continue;
+                sum += (long)atWarSec[i] * 10000 / aliveSec[i];
+                nations++;
+            }
+            r.AtWarTime_bp = nations > 0 ? (int)(sum / nations) : 0;
+        }
+    }
+
     /// <summary>Счётчики армии для отчёта и -analyze (спека 01c §7). Только читают мир.</summary>
     public static class ArmyStats
     {
@@ -664,6 +714,22 @@ namespace BattlePix.Editor
         public double MsPerTickP99;
         /// <summary>Самый долгий тик, в котором заключён мир (02b §6), мс; 0 — мира не было.</summary>
         public double PeaceTickMaxMs;
+        // ---------- война и мир (02b §7) ----------
+        public int WarsDeclared;
+        public int ClaimsWars;
+        public int ReparationsWars;
+        /// <summary>Исходы по WarOutcome (индекс = значение enum): 1 белый по предложению, 2 претензии, 3 репарации, 4 победа обороны, 5 белый по сроку, 6 гибель нации.</summary>
+        public int[] Outcomes;
+        /// <summary>Длины закончившихся войн, тики.</summary>
+        public List<int> WarLengthTicks;
+        /// <summary>Доля времени жизни, когда у нации хотя бы одна война, среднее по нациям, bp.</summary>
+        public int AtWarTime_bp;
+        /// <summary>Закреплено и перешло миром, пикселей за партию.</summary>
+        public int SettledPixels;
+        /// <summary>Выплачено репараций за партию, в сотых.</summary>
+        public long TributePaid_c;
+        /// <summary>Тик первого объявления; −1 — войн не было.</summary>
+        public int FirstWarTick = -1;
         /// <summary>Индекс 0 — ничья земля и вода, дальше по id наций.</summary>
         public int[] PixelsByNation;
         public bool Crashed;
@@ -875,6 +941,7 @@ namespace BattlePix.Editor
                         g.Average(x => x.ExhaustedTime_bp) / 100.0, g.Average(x => x.Rotations),
                         g.Average(x => x.RecruitedArmorDiv), g.Average(x => x.RecruitedInfDiv), g.Average(x => x.DivisionsLost)));
                 sb.AppendLine();
+                WriteWar(sb, done, ctx.Baseline, info.BaselineSource);
             }
 
             if (crashed > 0)
@@ -911,6 +978,49 @@ namespace BattlePix.Editor
                     r.MsPerTickMean, r.MsPerTickP99, r.FinalHash));
             }
             File.WriteAllText(Path.Combine(outDir, "report.md"), sb.ToString());
+        }
+
+        /// <summary>Раздел «Война и мир» (02b §7).</summary>
+        static void WriteWar(StringBuilder sb, List<MatchResult> done, IReadOnlyList<MatchResult> baseline, string baseSource)
+        {
+            var inv = CultureInfo.InvariantCulture;
+            sb.AppendLine("## Война и мир");
+            sb.AppendLine();
+            var wars = done.Select(r => (double)r.WarsDeclared).ToList();
+            sb.AppendLine(string.Format(inv, "- Войн за партию: в среднем {0:0.0}, медиана {1:0.0} (ожидание ≥ 2)", wars.Average(), Median(wars)));
+            var lengths = done.SelectMany(r => r.WarLengthTicks ?? new List<int>()).Select(t => t / 600.0).ToList();
+            if (lengths.Count > 0)
+                sb.AppendLine(string.Format(inv, "- Длина войны: медиана {0:0.0} мин, min {1:0.0}, max {2:0.0}", Median(lengths), lengths.Min(), lengths.Max()));
+            var o = new int[7];
+            foreach (var r in done) if (r.Outcomes != null) for (int i = 0; i < 7; i++) o[i] += r.Outcomes[i];
+            int ended = o.Sum();
+            string Pc(int x) => ended > 0 ? string.Format(inv, "{0} ({1:0}%)", x, 100.0 * x / ended) : "0";
+            sb.AppendLine($"- Исходы войн ({ended}): претензии {Pc(o[2])}, репарации {Pc(o[3])}, победа обороны {Pc(o[4])}, белый мир по предложению {Pc(o[1])}, " +
+                          $"белый мир по сроку {Pc(o[5])}, гибель нации {Pc(o[6])}");
+            int byGoal = o[2] + o[3] + o[4];
+            sb.AppendLine(string.Format(inv, "- Исход — цель или победа обороны, а не срок: {0:0}% (ожидание ≥ 50%)", ended > 0 ? 100.0 * byGoal / ended : 0));
+            int claims = done.Sum(r => r.ClaimsWars), reps = done.Sum(r => r.ReparationsWars);
+            sb.AppendLine(string.Format(inv, "- Цели при объявлении: претензии {0}, репарации {1}", claims, reps));
+            int noWar = done.Count(r => r.WarsDeclared == 0);
+            sb.AppendLine(string.Format(inv, "- Партий без единой войны: {0} из {1} ({2:0}%, цель ворот 2 ≤ 5%)", noWar, done.Count, 100.0 * noWar / done.Count));
+            sb.AppendLine(string.Format(inv, "- Доля времени, когда у нации хотя бы одна война: в среднем {0:0.0}%", done.Average(r => r.AtWarTime_bp) / 100.0));
+            sb.AppendLine(string.Format(inv, "- Закреплено и перешло земли миром: {0} px за прогон, {1:0} px на партию; выплачено репараций: {2:0} золота, {3:0} на партию",
+                done.Sum(r => (long)r.SettledPixels), done.Average(r => r.SettledPixels), done.Sum(r => r.TributePaid_c) / 100.0, done.Average(r => r.TributePaid_c) / 100.0));
+            var first = done.Where(r => r.FirstWarTick >= 0).Select(r => r.FirstWarTick / 600.0).ToList();
+            if (first.Count > 0) sb.AppendLine(string.Format(inv, "- Первая война: медиана {0:0.0} мин", Median(first)));
+            double peaceMax = done.Select(r => r.PeaceTickMaxMs).DefaultIfEmpty(0).Max();
+            sb.AppendLine(string.Format(inv, "- Максимум тика мира: {0:0.000} мс (цель ≤ 2 мс)", peaceMax));
+            if (baseline != null)
+            {
+                var b = baseline.Where(r => !r.Crashed).ToList();
+                if (b.Count > 0)
+                    sb.AppendLine(string.Format(inv, "- Против прогона без абляции ({0}): длина партии медиана {1:0.0} мин против {2:0.0}; Conquest {3} против {4}; войн за партию {5:0.0} против {6:0.0}; доля лидера на 30-й мин медиана {7:0.0}% против {8:0.0}%",
+                        baseSource, Median(done.Select(r => r.EndMinutes)), Median(b.Select(r => r.EndMinutes)),
+                        done.Count(r => r.EndReason == "Conquest"), b.Count(r => r.EndReason == "Conquest"),
+                        done.Average(r => r.WarsDeclared), b.Average(r => r.WarsDeclared),
+                        Median(done.Select(r => r.LeaderShare_bp[2] / 100.0)), Median(b.Select(r => r.LeaderShare_bp[2] / 100.0))));
+            }
+            sb.AppendLine();
         }
 
         static double Median(IEnumerable<double> xs)

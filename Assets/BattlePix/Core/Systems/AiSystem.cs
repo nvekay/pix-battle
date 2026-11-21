@@ -59,11 +59,31 @@ namespace BattlePix.Core
                 }
             }
 
+            // 02b, правило 0. Ответ на предложение белого мира: принять, если линия фронта не в убыток или фронт под угрозой.
+            for (int d = 1; d <= n; d++)
+            {
+                if (d == self || WarSystem.ValidateAnswer(w, self, d, 1) != RejectReason.None) continue;
+                bool accept = w.Occupied(self, d) >= w.Occupied(d, self) || _threat[d] >= p.ThreatRatio_bp;
+                return Issue(self, CommandType.AnswerPeace, d, accept ? 1 : 0, out cmd);
+            }
+
             // 02b, правило 1. Забрать выполненное: своя цель в войне выполнена — мир на своих условиях.
             for (int d = 1; d <= n; d++)
                 if (IsFront(w, self, d) && w.GoalFulfilled(self, d, self)
                     && WarSystem.ValidatePropose(w, self, d) == RejectReason.None)
                     return Issue(self, CommandType.ProposePeace, d, 0, out cmd);
+
+            // 02b, правило 2. Белый мир, когда не выходит: война идёт ≥ peaceAfterTicks, условие противника выполнено
+            // хотя бы наполовину, фронт под угрозой.
+            for (int d = 1; d <= n; d++)
+            {
+                if (!IsFront(w, self, d) || _threat[d] < p.ThreatRatio_bp) continue;
+                var war = w.WarOf(self, d);
+                if (w.Tick - war.StartTick < p.PeaceAfterTicks || war.OfferFrom == self) continue;
+                if (WarSystem.GoalProgress_bp(w, self, d, d) < 5000) continue;
+                if (WarSystem.ValidatePropose(w, self, d) != RejectReason.None) continue;
+                return Issue(self, CommandType.ProposePeace, d, 0, out cmd);
+            }
 
             // 1. В тыл обескровленную: на фронте, численность ниже rearStrength, на её фронте нет угрозы.
             for (int k = 0; k < maxK; k++)
@@ -117,7 +137,7 @@ namespace BattlePix.Core
                 }
             }
 
-            // 02b, правило 4. Объявление, если своих войн меньше maxOwnWars (подготовка — PR 2).
+            // 02b, правило 4. Подготовка и объявление, если своих войн меньше maxOwnWars.
             if (Declare(w, self, p, ref rng, out cmd)) return true;
 
             // 6. Набор: танковая под равнину цели, пока её доля среди живых ниже потолка; иначе пехотная.
@@ -126,7 +146,8 @@ namespace BattlePix.Core
 
         /// <summary>
         /// 02b §4.9, правило 4: кандидат — сосед в мире (не перемирие) с max ratio (при равенстве меньший id); объявлять,
-        /// если ratio ≥ declareRatio или без своих войн прошло idleWarTicks. Цель: претензии с вероятностью claimsChance.
+        /// если ratio ≥ declareRatio или без своих войн прошло idleWarTicks. Сначала подготовка: дивизии к границе с c,
+        /// пока их доля среди готовых ниже stageShare. Цель: претензии с вероятностью claimsChance.
         /// </summary>
         bool Declare(World w, byte self, AiProfile p, ref Pcg32 rng, out Command cmd)
         {
@@ -148,6 +169,22 @@ namespace BattlePix.Core
             if (c == 0) return false;
             int since = w.Tick - w.Nation(self).OwnWarEndTick;
             if (best < p.DeclareRatio_bp && since < p.IdleWarTicks) return false;
+
+            // Подготовка: пока у границы с c меньше stageShare готовых дивизий и в тылу есть свежая — к границе.
+            int ready = 0, staged = 0;
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (v.Alive == 0 || v.ReadyTick > w.Tick) continue;
+                ready++;
+                if (v.Front == c) staged++;
+            }
+            if ((long)staged * 10000 < (long)p.StageShare_bp * ready)
+            {
+                int fresh = FreshRear(w, self, p);
+                if (fresh >= 0) return Issue(self, CommandType.AssignDivision, fresh, c, out cmd);
+            }
+
             int b = 0;
             if (rng.NextInt(10000) < p.ClaimsChance_bp)
             {
