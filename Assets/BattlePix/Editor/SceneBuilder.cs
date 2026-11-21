@@ -17,15 +17,11 @@ namespace BattlePix.Editor
     {
         const string Root = "Assets/BattlePix";
         const string ScenePath = Root + "/Scenes/Main.unity";
-        const string MaterialPath = Root + "/Materials/OwnerPalette.mat";
+        const string MaterialPath = Root + "/Materials/MapBaked.mat";
         const string PanelSettingsPath = Root + "/UI/PanelSettings.asset";
         const string ThemePath = Root + "/UI/BattlePixTheme.tss";
         const string UxmlPath = Root + "/UI/Game.uxml";
-        const string ShaderName = "BattlePix/OwnerPalette";
-
-        // Карта 512×256 + место под панели справа и снизу (спека 01b §10); Pixel Perfect масштабирует целым множителем.
-        const int RefResolutionX = 800;
-        const int RefResolutionY = 450;
+        const string ShaderName = "BattlePix/MapBaked";
 
         [MenuItem("BattlePix/Rebuild Main Scene")]
         public static void Build()
@@ -37,21 +33,17 @@ namespace BattlePix.Editor
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-            // Камера: ортографическая + Pixel Perfect Camera (URP).
+            // Камера: ортографическая, масштаб и сдвиг задаёт MapCamera (спека 02a §5.5), Pixel Perfect Camera нет.
             var camGo = new GameObject("Main Camera") { tag = "MainCamera" };
             var cam = camGo.AddComponent<Camera>();
             cam.orthographic = true;
-            cam.orthographicSize = RefResolutionY * 0.5f;
+            cam.orthographicSize = 540;
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color32(12, 16, 20, 255);
+            cam.backgroundColor = new Color32(38, 84, 150, 255); // океан, как sky в palette.json
             cam.nearClipPlane = 0.3f;
             cam.farClipPlane = 100f;
             camGo.transform.position = new Vector3(0, 0, -10);
             camGo.AddComponent<UniversalAdditionalCameraData>();
-            var ppc = camGo.AddComponent<PixelPerfectCamera>();
-            ppc.assetsPPU = 1;
-            ppc.refResolutionX = RefResolutionX;
-            ppc.refResolutionY = RefResolutionY;
 
             // Карта: один квад, один MeshRenderer.
             var mapGo = new GameObject("Map");
@@ -62,6 +54,15 @@ namespace BattlePix.Editor
             mr.receiveShadows = false;
             mapGo.transform.localScale = new Vector3(512, 256, 1);
             var mapView = mapGo.AddComponent<MapView>();
+            var atlas = AssetDatabase.LoadAssetAtPath<DecorAtlas>(ArtGen.AtlasPath);
+            if (atlas == null)
+            {
+                ArtGen.Generate();
+                atlas = AssetDatabase.LoadAssetAtPath<DecorAtlas>(ArtGen.AtlasPath);
+            }
+            var mvSo = new SerializedObject(mapView);
+            mvSo.FindProperty("decorAtlas").objectReferenceValue = atlas;
+            mvSo.ApplyModifiedPropertiesWithoutUndo();
 
             // UI Toolkit.
             var uiGo = new GameObject("UI");
@@ -99,7 +100,7 @@ namespace BattlePix.Editor
                 return mat;
             }
             Directory.CreateDirectory(Path.GetDirectoryName(MaterialPath));
-            mat = new Material(shader) { name = "OwnerPalette" };
+            mat = new Material(shader) { name = "MapBaked" };
             AssetDatabase.CreateAsset(mat, MaterialPath);
             return mat;
         }

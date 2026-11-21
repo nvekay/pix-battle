@@ -22,6 +22,7 @@
             <ui:Button name="btn-save" class="btn" text="Сохранить реплей" />
         </ui:VisualElement>
         <ui:VisualElement name="map-area" class="map-area">
+            <ui:VisualElement name="labels" class="markers" picking-mode="Ignore" />
             <ui:VisualElement name="markers" class="markers" picking-mode="Ignore" />
             <ui:Label name="pixel-info" class="panel pixel-info hidden" text="" />
         </ui:VisualElement>

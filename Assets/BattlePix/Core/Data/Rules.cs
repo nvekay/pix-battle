@@ -143,6 +143,9 @@ namespace BattlePix.Core
         [JsonProperty("id")] public int Id;
         [JsonProperty("name")] public string Name = "";
         [JsonProperty("color")] public string Color = "";
+        /// <summary>Форма государства и падежи имени (спека 02a §4.2): читает только игра.</summary>
+        [JsonProperty("form")] public string Form = "";
+        [JsonProperty("cases")] public Dictionary<string, string> Cases;
     }
 
     public sealed class RulesFile

@@ -116,6 +116,10 @@ namespace BattlePix.Game
         [JsonProperty("id")] public int Id;
         [JsonProperty("name")] public string Name = "";
         [JsonProperty("color")] public string Color = "#000000";
+        /// <summary>«Республика», «Королевство»… Пусто у ничьей земли.</summary>
+        [JsonProperty("form")] public string Form = "";
+        /// <summary>Падежи имени: gen (родительный), dat (дательный), ins (творительный).</summary>
+        [JsonProperty("cases")] public Dictionary<string, string> Cases = new Dictionary<string, string>();
 
         public static List<NationInfo> ParseList(string json) =>
             JsonConvert.DeserializeObject<List<NationInfo>>(json) ?? new List<NationInfo>();
