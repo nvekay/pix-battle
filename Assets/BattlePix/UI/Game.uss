@@ -209,7 +209,7 @@
 }
 .plate-row { flex-direction: row; align-items: center; margin-top: 4px; }
 .plate-row > .icon { width: 32px; height: 32px; margin-right: 4px; }
-.plate-row > Label { margin-right: 8px; }
+.plate-row > Label { margin-right: 8px; flex-shrink: 1; white-space: normal; }
 .plate-verdict { margin-top: 8px; -unity-font-style: bold; white-space: normal; }
 .plate-pointer {
     position: absolute;
@@ -246,6 +246,12 @@
 .hq-marker > Label { font-size: 20px; color: var(--text); -unity-font-style: bold; margin: 0; padding: 0; }
 .hq-marker.attack { border-color: var(--bad); }
 .hq-marker.empty { border-color: var(--gold); background-color: rgba(24, 29, 39, 0.6); }
+.hq-marker { flex-direction: column; align-items: stretch; padding: 0 4px 2px 0; }
+.hq-marker-top { flex-direction: row; align-items: center; }
+.hq-org { height: 4px; margin-left: 4px; background-color: rgb(40, 46, 58); }
+.hq-org-fill { height: 100%; background-color: var(--gold); }
+.hq-org-fill.exhausted { background-color: var(--dim); }
+.hq-marker.tired { border-color: var(--dim); }
 
 /* ---------- соединения ---------- */
 .formations-panel {
@@ -258,7 +264,38 @@
 .formations-bar > .panel-title { margin: 0 12px 0 0; }
 .assign-hint { margin-left: 8px; flex-shrink: 1; white-space: normal; }
 .formations-list { height: 176px; }
-.formations-list .unity-scroll-view__content-container { flex-direction: row; }
+.formations-list .unity-scroll-view__content-container { flex-direction: row; align-items: flex-start; }
+/* Дивизии (01c §9): группы слева направо, в группе плитки 72×56 по две в столбец. */
+.div-group { margin-right: 12px; }
+.div-group-head { font-size: 20px; color: var(--dim); margin: 0 0 4px 0; padding: 0; height: 24px; white-space: nowrap; }
+.div-group-head:hover { color: var(--text); }
+.div-group-body { flex-direction: column; flex-wrap: wrap; height: 128px; align-content: flex-start; }
+.div-tile {
+    width: 72px; height: 56px;
+    margin: 0 4px 4px 0;
+    padding: 2px 4px;
+    background-color: rgb(36, 44, 58);
+    border-width: 2px;
+    border-color: rgb(12, 14, 18);
+}
+.div-tile:hover { border-color: var(--edge-hi); }
+.div-tile.selected { border-color: var(--accent); border-width: 3px; background-color: rgb(40, 52, 80); }
+.div-tile.training { background-color: rgb(30, 34, 44); }
+.div-tile-head { flex-direction: row; align-items: center; height: 24px; }
+.div-tile-icon { width: 16px; height: 16px; }
+.div-tile-num { font-size: 20px; color: var(--text); margin: 0 0 0 2px; padding: 0; flex-grow: 1; }
+.div-tile-pause { width: 16px; height: 16px; }
+.div-tile-timer { font-size: 20px; color: var(--gold); margin: 0; padding: 0; -unity-text-align: middle-right; }
+.div-bar { height: 6px; margin-top: 4px; background-color: rgb(40, 46, 58); }
+.div-bar-fill { height: 100%; }
+.div-bar-str { background-color: var(--good); }
+.div-bar-str.low { background-color: var(--bad); }
+.div-bar-org { background-color: var(--gold); }
+.div-bar-org.exhausted { background-color: var(--dim); }
+.select-band { position: absolute; border-width: 2px; border-color: var(--accent); background-color: rgba(63, 102, 217, 0.15); }
+.order-toggle { flex-direction: row; margin-left: 8px; }
+.order-btn { width: 32px; height: 32px; min-height: 32px; padding: 0; margin: 0 0 0 2px; }
+.order-btn > .icon { margin: 0; width: 24px; height: 24px; }
 .card {
     width: 220px;
     height: 164px;

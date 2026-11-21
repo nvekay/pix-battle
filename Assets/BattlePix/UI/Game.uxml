@@ -121,16 +121,23 @@
         <!-- Слева снизу: сводка. -->
         <ui:VisualElement name="feed" class="feed" picking-mode="Ignore" />
 
-        <!-- Снизу: соединения. -->
-        <ui:VisualElement name="formations-panel" class="panel formations-panel">
+        <!-- Снизу: дивизии (спека 01c §9). -->
+        <ui:VisualElement name="divisions-panel" class="panel formations-panel">
             <ui:VisualElement class="formations-bar">
-                <ui:Label class="text-30 panel-title" text="Соединения" />
-                <ui:Button name="btn-new-hq" class="btn" text="Новый штаб" />
-                <ui:Button name="btn-new-type" class="btn" text="Пехота" tooltip="Чем укомплектовать новый штаб" />
-                <ui:Button name="btn-rear" class="btn" text="В тыл" tooltip="Отвести выделенное соединение (R)" />
+                <ui:Label class="text-30 panel-title" text="Дивизии" />
+                <ui:Button name="btn-new-inf" class="btn">
+                    <ui:VisualElement class="icon icon-budget" picking-mode="Ignore" />
+                    <ui:Label class="text-20 btn-text" text="+ Пехотная" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="btn-new-armor" class="btn">
+                    <ui:VisualElement class="icon icon-budget" picking-mode="Ignore" />
+                    <ui:Label class="text-20 btn-text" text="+ Танковая" picking-mode="Ignore" />
+                </ui:Button>
+                <ui:Button name="btn-rear" class="btn" text="В тыл" tooltip="Отвести выделенные дивизии в тыл (R)" />
                 <ui:Label name="assign-hint" class="text-20 dim assign-hint" text="" />
             </ui:VisualElement>
-            <ui:ScrollView name="formations-list" class="formations-list" mode="Horizontal" />
+            <ui:ScrollView name="divisions-list" class="formations-list" mode="Horizontal" />
+            <ui:VisualElement name="select-band" class="select-band hidden" picking-mode="Ignore" />
         </ui:VisualElement>
 
         <ui:Label name="pixel-info" class="panel pixel-info hidden" text="" />

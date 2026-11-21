@@ -29,6 +29,8 @@ namespace BattlePix.Game
         public string Genitive(int id) => Case(id, "gen");
         public string Dative(int id) => Case(id, "dat");
         public string Instrumental(int id) => Case(id, "ins");
+        /// <summary>Винительный: «наступление на Альварию».</summary>
+        public string Accusative(int id) => Case(id, "acc");
 
         string Case(int id, string key) =>
             _nations.TryGetValue(id, out var n) && n.Cases != null && n.Cases.TryGetValue(key, out var s) && s != "" ? s : Nominative(id);
