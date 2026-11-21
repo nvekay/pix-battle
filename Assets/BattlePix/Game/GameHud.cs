@@ -8,8 +8,9 @@ using UnityEngine.UIElements;
 namespace BattlePix.Game
 {
     /// <summary>
-    /// Интерфейс партии (спека 02a §9, ПК; армия — спека 01c §9): карточка нации, HUD группами, «Фронты» с переключателем
-    /// приказа, плашка фронта с выноской, панель «Дивизии» (плитки по группам), сводка, значки фронтов на карте, клавиши.
+    /// Интерфейс партии (спека 02a §9, ПК; армия — спека 01c §9; война и мир — 02b §9): карточка нации, HUD группами,
+    /// «Соседи» (мир / война / перемирие, объявление, цель, мир), карточка объявления и выбор района, плашка фронта с выноской,
+    /// панель «Дивизии» (плитки по группам), сводка с предложениями мира, значки фронтов на карте, клавиши.
     /// Только читает мир между тиками и отдаёт команды человека через EnqueueFromUi. Числа ядра переводятся в слова,
     /// сырые — в подсказки по наведению.
     /// Назначение: выделить плитки (клик, Shift-клик, рамка, двойной клик по заголовку группы, A — весь тыл), потом клик
@@ -98,7 +99,25 @@ namespace BattlePix.Game
             public VisualElement Root, Order, Us, Them, Plain, Hills, Mountains;
             public Label Name, Verdict;
             public Button Attack, Defend;
+            // 02b: статус пары, строки цели, кнопки войны и мира.
+            public VisualElement Toggle, Bottom;
+            public Label Status, Goal, Defense, Info;
+            public Button Declare, Peace;
+            public Label PeaceText;
+            public int SortKey = -1;
         }
+
+        // 02b: карточка объявления, выбор района, предложения ИИ, сводка войны.
+        VisualElement _declareCard;
+        Label _declareTitle;
+        int _declareTarget;
+        int _claimTarget;
+        Label _claimLabel;
+        int _seenEvents;
+        bool[] _prevStaging, _prevHeldOnUs;
+        readonly Dictionary<int, FeedItem> _offerCards = new Dictionary<int, FeedItem>();
+        /// <summary>Сколько дивизий соседа у нашей границы — «стягивает».</summary>
+        const int StagingAlert = 3;
 
         sealed class Tile
         {
@@ -203,6 +222,15 @@ namespace BattlePix.Game
                 $"Танковая дивизия: 2 бронетанковых и 1 пехотный батальон. Рвёт равнину, вязнет в горах. Готова через {TrainSeconds(DivisionTypes.Armor)} с");
             Bind(_btnRear, RearReason, () => 0, () => AssignSelected(0), "Отвести выделенные дивизии в тыл (R)");
 
+            BuildDeclareCard();
+            _claimLabel = new Label("") { pickingMode = PickingMode.Ignore };
+            _claimLabel.AddToClassList("panel");
+            _claimLabel.AddToClassList("hover");
+            _claimLabel.AddToClassList("hidden");
+            root.Add(_claimLabel);
+            var title = root.Q<VisualElement>("fronts-panel")?.Q<Label>(className: "panel-title");
+            if (title != null) title.text = "Соседи";
+
             // Рамка выделения: тянуть мышью по пустому месту панели «Дивизии».
             _divList.RegisterCallback<PointerDownEvent>(OnBandDown, TrickleDown.NoTrickleDown);
             _divPanel.RegisterCallback<PointerMoveEvent>(OnBandMove);
@@ -263,6 +291,12 @@ namespace BattlePix.Game
             _prevExhausted = new bool[n + 1];
             _prevTraining = new bool[maxK];
             _lastCapital = new int[n + 1];
+            _prevStaging = new bool[n + 1];
+            _prevHeldOnUs = new bool[n + 1];
+            _seenEvents = sim.World.WarEvents.Count;
+            _offerCards.Clear();
+            _declareTarget = 0;
+            _claimTarget = 0;
             for (int d = 1; d <= n; d++)
             {
                 _prevAlive[d] = W.Nation((byte)d).Alive != 0;
@@ -309,6 +343,7 @@ namespace BattlePix.Game
             UpdateTerritory();
 
             int fronts = 0;
+            bool reorder = false;
             for (int d = 1; d <= w.NationCount; d++)
             {
                 if (d == Human) continue;
@@ -319,7 +354,16 @@ namespace BattlePix.Game
                     fronts++;
                     UpdateRow((byte)d);
                 }
+                // Сверху войны, потом перемирия, потом мир (02b §9).
+                byte st = w.WarOf(Human, d).Status;
+                int key = st == WarStatus.War ? 0 : st == WarStatus.Truce ? 1 : 2;
+                if (_rows[d].SortKey != key) { _rows[d].SortKey = key; reorder = true; }
             }
+            if (reorder)
+                for (int key = 0; key <= 2; key++)
+                    for (int d = 1; d <= w.NationCount; d++)
+                        if (d != Human && _rows[d].SortKey == key) _rows[d].Root.BringToFront();
+            if (_declareTarget != 0 && WarSystem.ValidateDeclare(w, Human, _declareTarget, 0) != RejectReason.None) CloseDeclare();
             _frontsEmpty.style.display = fronts == 0 ? DisplayStyle.Flex : DisplayStyle.None;
             _frontsHint.style.display = fronts == 0 ? DisplayStyle.None : DisplayStyle.Flex;
 
@@ -447,6 +491,269 @@ namespace BattlePix.Game
                              + $"Их атака {w.WeightedAttack(d, Human)}, наша оборона {w.WeightedDefense(Human, d)}\nСдвиг за 10 с: {(net >= 0 ? "+" : "−")}{Math.Abs(net)} px";
             r.Root.EnableInClassList("selected", _plateFront == d);
             r.Root.EnableInClassList("drop-target", SelectedCount() > 0);
+            UpdateWarPart(d, r);
+        }
+
+        /// <summary>Строка соседа по статусу пары (02b §9): мир — «Объявить войну», война — цель и мир, перемирие — срок и дань.</summary>
+        void UpdateWarPart(byte d, FrontRow r)
+        {
+            var w = W;
+            var war = w.WarOf(Human, d);
+            int tps = _config.TicksPerSecond;
+            bool atWar = war.Status == WarStatus.War, truce = war.Status == WarStatus.Truce;
+            r.Root.EnableInClassList("at-war", atWar);
+            r.Root.EnableInClassList("in-truce", truce);
+            r.Status.text = atWar ? "ВОЙНА" : truce ? "ПЕРЕМИРИЕ " + Clock((war.TruceUntil - w.Tick + tps - 1) / tps) : "МИР";
+            r.Status.EnableInClassList("st-war", atWar);
+            r.Status.EnableInClassList("st-truce", truce);
+            r.Status.EnableInClassList("st-peace", !atWar && !truce);
+            var show = atWar ? DisplayStyle.Flex : DisplayStyle.None;
+            r.Toggle.style.display = show;
+            r.Bottom.style.display = show;
+            r.Order.style.display = show;
+            r.Verdict.style.display = show;
+            r.Goal.style.display = show;
+            r.Defense.style.display = show;
+            r.Peace.style.display = show;
+            r.Declare.style.display = !atWar && !truce ? DisplayStyle.Flex : DisplayStyle.None;
+            r.Info.style.display = atWar ? DisplayStyle.None : DisplayStyle.Flex;
+
+            if (!atWar)
+            {
+                int ours = DivisionsAtBorder(Human, d), theirs = DivisionsAtBorder(d, Human);
+                if (truce)
+                {
+                    string info = $"Перемирие до {Clock(war.TruceUntil / tps)}";
+                    if (war.TributePayer != 0 && w.Tick < war.TributeUntil)
+                    {
+                        string rate = PerSec(EconomySystem.Income(w, war.TributePayer) * _rules.War.Tribute_bp / 10000).TrimStart('+');
+                        info += war.TributePayer == Human
+                            ? $" · мы платим {rate}/с до {Clock(war.TributeUntil / tps)}"
+                            : $" · платят нам {rate}/с до {Clock(war.TributeUntil / tps)}";
+                    }
+                    r.Info.text = info;
+                }
+                else
+                    r.Info.text = $"У границы наших дивизий: {ours}" + (theirs >= StagingAlert ? $" · стягивает {theirs}!" : "");
+                r.Info.EnableInClassList("bad", !truce && theirs >= StagingAlert);
+                var dr = WarSystem.ValidateDeclare(w, Human, d, 0);
+                r.Declare.EnableInClassList("disabled-look", dr != RejectReason.None);
+                r.Declare.tooltip = dr == RejectReason.None
+                    ? $"Объявить войну {_names.Dative(d)}: выбрать цель — район или репарации"
+                    : ReasonText(dr, 0, d);
+                return;
+            }
+
+            // Цель нападающего и прогресс защиты.
+            bool weAttack = war.Attacker == Human;
+            byte attacker = war.Attacker;
+            int need = _rules.War.GoalHoldSeconds;
+            int goalPct = GoalPct(w, attacker, d == attacker ? (byte)Human : d);
+            string goal = war.Goal == WarGoals.Claims
+                ? $"{(weAttack ? "Претензии: держим" : "Их претензии: держат")} {Percent(w.ClaimHeld(Human, d), war.ClaimTotal)}% района из {_rules.War.ClaimHold_bp / 100}%"
+                : $"{(weAttack ? "Репарации: заняли" : "Их репарации: заняли")} {Percent(w.Occupied(attacker, war.Defender(Human, d)), war.PreWarDef)}% {(weAttack ? "их" : "нашей")} земли из {_rules.War.RepOccupy_bp / 100}%";
+            int hold = war.HoldAtt;
+            if (hold > 0) goal += $" · {(weAttack ? "держим" : "держат")} {Math.Min(hold, need)} / {need} с";
+            r.Goal.text = goal;
+            r.Goal.EnableInClassList("gold", weAttack && goalPct >= 10000);
+            r.Goal.EnableInClassList("bad", !weAttack && hold > 0);
+            byte defender = war.Defender(Human, d);
+            int defHold = war.HoldDef;
+            string defense = weAttack
+                ? $"Они: заняли {Percent(w.Occupied(d, Human), war.PreWarAtt)}% нашей земли из {_rules.War.DefenseWin_bp / 100}%"
+                : $"Мы: заняли {Percent(w.Occupied(Human, d), war.PreWarAtt)}% их земли из {_rules.War.DefenseWin_bp / 100}%";
+            if (defHold > 0) defense += $" · {(defender == Human ? "держим" : "держат")} {Math.Min(defHold, need)} / {need} с";
+            r.Defense.text = defense;
+            r.Defense.EnableInClassList("bad", weAttack && defHold > 0);
+            r.Defense.EnableInClassList("gold", !weAttack && defHold >= need);
+
+            // Кнопка мира.
+            bool own = w.GoalFulfilled(Human, d, Human);
+            bool theirOffer = war.OfferFrom == d && w.Tick < war.OfferUntil;
+            bool ourOffer = war.OfferFrom == Human && w.Tick < war.OfferUntil;
+            int cooldown = weAttack ? war.OfferCooldownAtt : war.OfferCooldownDef;
+            string text;
+            if (own) text = !weAttack ? "Навязать мир" : war.Goal == WarGoals.Claims ? "Забрать район" : "Взыскать репарации";
+            else if (theirOffer) text = "Принять белый мир";
+            else if (ourOffer) text = $"Ждём ответа {(war.OfferUntil - w.Tick + tps - 1) / tps} с";
+            else if (w.Tick < cooldown) text = $"Белый мир через {(cooldown - w.Tick + tps - 1) / tps} с";
+            else text = "Предложить белый мир";
+            r.PeaceText.text = text;
+            r.Peace.EnableInClassList("peace-gold", own);
+            r.Peace.EnableInClassList("disabled-look", !own && !theirOffer && (ourOffer || w.Tick < cooldown));
+            r.Peace.tooltip = own
+                ? (!weAttack ? $"Мы отбились: {_names.Nominative(d)} вернёт занятое и полдохода 5 минут платит нам"
+                    : war.Goal == WarGoals.Claims ? "Район и всё занятое — наши навсегда, остальное занятое возвращаем"
+                    : "Занятое вернём, они платят половину дохода 5 минут")
+                : "Белый мир: каждый оставляет занятое. Потом перемирие 5 минут";
+        }
+
+        /// <summary>Своих дивизий owner с Front = d (на месте и в пути).</summary>
+        int DivisionsAtBorder(byte owner, byte d)
+        {
+            var w = W;
+            int c = 0;
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(owner, k));
+                if (v.Alive != 0 && v.Front == d) c++;
+            }
+            return c;
+        }
+
+        static int GoalPct(World w, byte side, byte other) => WarSystem.GoalProgress_bp(w, side, other, side);
+
+        static int Percent(long have, long of) => of > 0 ? (int)(have * 100 / of) : 0;
+
+        static string Clock(int seconds)
+        {
+            if (seconds < 0) seconds = 0;
+            return $"{seconds / 60}:{seconds % 60:00}";
+        }
+
+        // ---------- 02b: объявление, район, мир ----------
+
+        void BuildDeclareCard()
+        {
+            _declareCard = new VisualElement();
+            _declareCard.AddToClassList("panel");
+            _declareCard.AddToClassList("declare-card");
+            _declareCard.AddToClassList("hidden");
+            _declareTitle = new Label("") { pickingMode = PickingMode.Ignore };
+            _declareTitle.AddToClassList("text-30");
+            _declareCard.Add(_declareTitle);
+            Option("Территориальные претензии", "Возьми и удержи 70% района 20 с. Район и всё занятое — твои навсегда.", () => StartClaim(_declareTarget));
+            Option("Репарации", "Займи 10% их земли и удержи 20 с. Занятое вернёшь, они платят половину дохода 5 минут.", () => Declare(_declareTarget, 0));
+            var risk = new Label("Если они займут 10% нашей земли, мир навяжут они") { pickingMode = PickingMode.Ignore };
+            risk.AddToClassList("caption");
+            risk.AddToClassList("declare-risk");
+            _declareCard.Add(risk);
+            var close = new Button(CloseDeclare) { text = "Отмена (Esc)" };
+            close.AddToClassList("btn");
+            _declareCard.Add(close);
+            _declareCard.RegisterCallback<PointerDownEvent>(e => e.StopPropagation());
+            _root.Add(_declareCard);
+
+            void Option(string title, string body, Action act)
+            {
+                var b = new Button(act);
+                b.AddToClassList("btn");
+                b.AddToClassList("declare-option");
+                var t = new Label(title) { pickingMode = PickingMode.Ignore };
+                t.AddToClassList("text-20");
+                t.AddToClassList("gold");
+                var d = new Label(body) { pickingMode = PickingMode.Ignore };
+                d.AddToClassList("caption");
+                d.AddToClassList("declare-body");
+                b.Add(t);
+                b.Add(d);
+                _declareCard.Add(b);
+            }
+        }
+
+        void OpenDeclare(byte d)
+        {
+            if (_sim == null || W.IsOver || !Alive) return;
+            var r = WarSystem.ValidateDeclare(W, Human, d, 0);
+            if (r != RejectReason.None) { ShowTip(ReasonText(r, 0, d)); return; }
+            _declareTarget = d;
+            _declareTitle.text = $"Война с {_names.Instrumental(d)}";
+            var row = _rows[d].Root.worldBound;
+            var origin = _root.worldBound.position;
+            _declareCard.style.top = Mathf.Max(100, row.y - origin.y);
+            _declareCard.RemoveFromClassList("hidden");
+        }
+
+        void CloseDeclare()
+        {
+            _declareTarget = 0;
+            _declareCard?.AddToClassList("hidden");
+        }
+
+        void StartClaim(int d)
+        {
+            CloseDeclare();
+            if (d == 0) return;
+            _claimTarget = d;
+            ShowTip($"Выберите район на земле {_names.Genitive(d)} у границы: клик — объявить войну, Esc или ПКМ — отмена", 6f);
+        }
+
+        void StopClaim()
+        {
+            _claimTarget = 0;
+            _claimLabel?.AddToClassList("hidden");
+            _map.SetClaimPreview(0, 0, 0, false, false);
+        }
+
+        void Declare(int d, int b)
+        {
+            CloseDeclare();
+            if (_sim == null || W.IsOver || !Alive || d == 0) return;
+            var r = WarSystem.ValidateDeclare(W, Human, d, b);
+            if (r != RejectReason.None) { ShowTip(ReasonText(r, 0, d)); return; }
+            _sim.EnqueueFromUi(CommandType.DeclareWar, Human, d, b);
+            ShowTip(b == 0 ? $"Война с {_names.Instrumental(d)}: репарации" : $"Война с {_names.Instrumental(d)}: претензии на район", 3f);
+            Refresh();
+        }
+
+        /// <summary>Каждый кадр в режиме выбора района: круг под курсором, зелёный — можно, красный — нельзя, причина у курсора.</summary>
+        public void UpdateClaimHover(Vector2 screenMouse)
+        {
+            if (_claimTarget == 0 || _sim == null) return;
+            if (!Alive || WarSystem.ValidateDeclare(W, Human, _claimTarget, 0) != RejectReason.None) { StopClaim(); return; }
+            var w = W;
+            bool onMap = _map.ScreenToCell(_camera, screenMouse, out int x, out int y);
+            if (!onMap)
+            {
+                _map.SetClaimPreview(0, 0, 0, false, false);
+                _claimLabel.AddToClassList("hidden");
+                return;
+            }
+            var check = WarSystem.CheckClaim(w, Human, _claimTarget, w.Index(x, y), out int total);
+            _map.SetClaimPreview(x, y, _rules.War.ClaimRadius, check == ClaimCheck.Ok, true);
+            _claimLabel.text = check == ClaimCheck.Ok ? $"Район: {total} px их земли · клик — объявить войну" : ClaimText(check);
+            _claimLabel.EnableInClassList("bad", check != ClaimCheck.Ok);
+            _claimLabel.RemoveFromClassList("hidden");
+            var panel = _root.panel;
+            if (panel == null) return;
+            var pp = RuntimePanelUtils.ScreenToPanel(panel, new Vector2(screenMouse.x, Screen.height - screenMouse.y));
+            _claimLabel.style.left = Mathf.Round(pp.x + 20);
+            _claimLabel.style.top = Mathf.Round(pp.y + 24);
+        }
+
+        static string ClaimText(ClaimCheck c) =>
+            c == ClaimCheck.TooFar ? "Слишком далеко от границы"
+            : c == ClaimCheck.TouchesCapital ? "Задевает их столицу"
+            : c == ClaimCheck.TooSmall ? "Мало их земли: район почти в воде"
+            : "Это не их земля";
+
+        void OnPeaceClicked(byte d)
+        {
+            if (_sim == null || W.IsOver || !Alive) return;
+            var w = W;
+            var war = w.WarOf(Human, d);
+            if (war.OfferFrom == d && w.Tick < war.OfferUntil && !w.GoalFulfilled(Human, d, Human))
+            {
+                Answer(d, 1);
+                return;
+            }
+            var r = WarSystem.ValidatePropose(w, Human, d);
+            if (r != RejectReason.None) { ShowTip(ReasonText(r, 0, d)); return; }
+            if (war.OfferFrom == Human && w.Tick < war.OfferUntil && !w.GoalFulfilled(Human, d, Human)) { ShowTip("Ждём ответа на наше предложение"); return; }
+            _sim.EnqueueFromUi(CommandType.ProposePeace, Human, d, 0);
+            ShowTip(w.GoalFulfilled(Human, d, Human) ? "Мир на наших условиях" : $"Предлагаем белый мир {_names.Dative(d)}", 2.5f);
+            Refresh();
+        }
+
+        void Answer(int from, int yes)
+        {
+            if (_sim == null || W.IsOver || !Alive) return;
+            var r = WarSystem.ValidateAnswer(W, Human, from, yes);
+            if (r != RejectReason.None) { ShowTip(ReasonText(r, 0, from)); return; }
+            _sim.EnqueueFromUi(CommandType.AnswerPeace, Human, from, yes);
+            if (_offerCards.TryGetValue(from, out var card)) { card.Root.RemoveFromHierarchy(); _feedItems.Remove(card); _offerCards.Remove(from); }
+            ShowTip(yes == 1 ? $"Белый мир с {_names.Instrumental(from)}" : $"Отказ {_names.Dative(from)}", 2f);
+            Refresh();
         }
 
         /// <summary>Группа плитки: готовится, тыл, в пути или фронт.</summary>
@@ -518,7 +825,7 @@ namespace BattlePix.Game
                 {
                     FrontState(Human, (byte)key, out _, out _, out _, out _, out bool exh);
                     bool atk = w.FrontOrderOf(Human, key) == Orders.Attack;
-                    grp.Header.text = $"{_names.Nominative(key)} · {(atk ? (exh ? "выдохлись" : "наступаем") : "оборона")}";
+                    grp.Header.text = !W.AtWar(Human, key) ? $"{_names.Nominative(key)} · у границы" : $"{_names.Nominative(key)} · {(atk ? (exh ? "выдохлись" : "наступаем") : "оборона")}";
                 }
             }
         }
@@ -551,6 +858,7 @@ namespace BattlePix.Game
             sw.style.backgroundColor = (Color)_palette[d];
             top.Add(sw);
             r.Name = Cell(top, "front-name", _names.Nominative(d));
+            r.Status = Cell(top, "front-status", "МИР");
             r.Order = IconEl("frontOpen", "front-order");
             top.Add(r.Order);
             r.Verdict = Cell(top, "front-verdict", "");
@@ -559,6 +867,7 @@ namespace BattlePix.Game
             r.Attack = OrderButton(toggle, "attack", $"Наступать на {_names.Accusative(d)}: берём землю, дивизии выдыхаются и несут потери, держат хуже");
             r.Defend = OrderButton(toggle, "defend", "Оборона: землю не берём, организация не горит, пока на нас не давят");
             top.Add(toggle);
+            r.Toggle = toggle;
             r.Attack.clicked += () => SetFrontOrder(d, Orders.Attack);
             r.Defend.clicked += () => SetFrontOrder(d, Orders.Defend);
             r.Root.Add(top);
@@ -577,6 +886,20 @@ namespace BattlePix.Game
             r.Mountains = Part(strip, null, "terrain-mountains");
             bottom.Add(strip);
             r.Root.Add(bottom);
+            r.Bottom = bottom;
+            r.Goal = Cell(r.Root, "front-line", "");
+            r.Defense = Cell(r.Root, "front-line", "");
+            r.Info = Cell(r.Root, "front-line", "");
+            r.Declare = new Button(() => OpenDeclare(d)) { text = "Объявить войну" };
+            r.Declare.AddToClassList("btn");
+            r.Declare.AddToClassList("front-btn");
+            r.Root.Add(r.Declare);
+            r.Peace = new Button(() => OnPeaceClicked(d));
+            r.Peace.AddToClassList("btn");
+            r.Peace.AddToClassList("front-btn");
+            r.PeaceText = new Label("Предложить белый мир") { pickingMode = PickingMode.Ignore };
+            r.Peace.Add(r.PeaceText);
+            r.Root.Add(r.Peace);
 
             r.Root.RegisterCallback<PointerDownEvent>(evt =>
             {
@@ -876,6 +1199,17 @@ namespace BattlePix.Game
                 return true;
             }
             var w = W;
+            if (_claimTarget != 0)
+            {
+                if (!onMap) return true;
+                int c = w.Index(x, y);
+                var check = WarSystem.CheckClaim(w, Human, _claimTarget, c, out _);
+                if (check != ClaimCheck.Ok) { ShowTip(ClaimText(check), 2f); return true; }
+                int target = _claimTarget;
+                StopClaim();
+                Declare(target, c + 1);
+                return true;
+            }
             int i = w.Index(x, y);
             int o = w.IsLand(i) ? w.Owner[i] : 0;
             bool selected = SelectedCount() > 0;
@@ -964,8 +1298,11 @@ namespace BattlePix.Game
         public Vector3? ShowFirstFrontForShot()
         {
             Vector3? at = null;
+            int pick = 0;
+            for (int d = 1; d <= W.NationCount && pick == 0; d++)
+                if (Contact(d) && W.AtWar(Human, d)) pick = d;
             for (int d = 1; d <= W.NationCount; d++)
-                if (Contact(d))
+                if (Contact(d) && (pick == 0 || d == pick))
                 {
                     _plateFront = d;
                     ShowPlate((byte)d);
@@ -982,6 +1319,8 @@ namespace BattlePix.Game
         /// <summary>ПКМ или Esc: снять выделение, закрыть плашку и подсказку.</summary>
         public void Cancel()
         {
+            StopClaim();
+            CloseDeclare();
             Deselect();
             HidePanels();
             if (_sim != null) Refresh();
@@ -1023,7 +1362,7 @@ namespace BattlePix.Game
             int len = Math.Max(1, w.FrontLength(Human, d));
             FrontState(Human, d, out int ours, out int ourTransit, out int ourArmor, out int ourOrg, out bool weTired);
             FrontState(d, Human, out int theirs, out _, out _, out int theirOrg, out bool theyTired);
-            _plateTitle.text = $"Фронт с {_names.Instrumental(d)}";
+            _plateTitle.text = w.AtWar(Human, d) ? $"Фронт с {_names.Instrumental(d)}" : $"Граница с {_names.Instrumental(d)}";
             long wa = w.WeightedAttack(Human, d), wd = w.WeightedDefense(Human, d);
             long ta = w.WeightedAttack(d, Human), td = w.WeightedDefense(d, Human);
             bool weOrder = w.FrontOrderOf(Human, d) == Orders.Attack;
@@ -1058,6 +1397,8 @@ namespace BattlePix.Game
             else if (theyAttack)
                 verdict = ta >= wd ? $"У них перевес {Ratio(ta, wd)} — {move}" : $"Держим: у них {Ratio(ta, wd)} — {move}";
             else verdict = ours == 0 ? $"Никто не наступает — {move}. Поставьте дивизии" : $"Никто не наступает — {move}";
+            if (!w.AtWar(Human, d))
+                verdict = w.InTruce(Human, d) ? "Перемирие: граница закрыта, наступать нельзя" : "Мир: граница стоит. Чтобы наступать, объявите войну";
             _plateVerdict.text = verdict;
             _plateVerdict.EnableInClassList("good", net > 0);
             _plateVerdict.EnableInClassList("bad", net < 0);
@@ -1309,6 +1650,7 @@ namespace BattlePix.Game
                 _prevAlive[d] = natAlive;
                 if (natAlive) _lastCapital[d] = w.Nation((byte)d).Capital;
             }
+            CheckWarEvents();
             for (int k = 0; k < maxK; k++)
             {
                 var v = Div(k);
@@ -1320,6 +1662,117 @@ namespace BattlePix.Game
         }
 
         Vector2Int? FrontCell(byte d) => FrontPoint(d, out var c) ? c : (Vector2Int?)null;
+
+        /// <summary>Сводка войны и мира (02b §9) по журналу ядра и состоянию пар.</summary>
+        void CheckWarEvents()
+        {
+            var w = W;
+            int tps = _config.TicksPerSecond;
+            bool alive = Alive;
+            for (; _seenEvents < w.WarEvents.Count; _seenEvents++)
+            {
+                var e = w.WarEvents[_seenEvents];
+                bool ours = e.A == Human || e.D == Human;
+                byte other = e.A == Human ? e.D : e.A;
+                switch (e.Kind)
+                {
+                    case WarEventKind.Declared:
+                        if (e.D == Human)
+                            Feed(FeedKind.Urgent, $"{_names.Nominative(e.A)} объявляет нам войну: " +
+                                (e.Goal == WarGoals.Claims ? "претензии на наш район" : "требует репараций"), FrontCell(e.A));
+                        else if (!ours)
+                            Feed(FeedKind.Report, $"{_names.Nominative(e.A)} объявляет войну {_names.Dative(e.D)}", null);
+                        break;
+                    case WarEventKind.Offer:
+                        if (e.D == Human && alive) OfferCard(e.A);
+                        break;
+                    case WarEventKind.OfferRejected:
+                        if (e.D == Human) Feed(FeedKind.Report, $"{_names.Nominative(e.A)} отказывает в белом мире", null);
+                        break;
+                    case WarEventKind.Peace:
+                    {
+                        if (!ours) break;
+                        CloseOffer(other);
+                        var war = w.WarOf(e.A, e.D);
+                        string until = Clock(war.TruceUntil / tps);
+                        string rate = (e.Value / 100.0).ToString("0.0", Ru);
+                        switch (e.Outcome)
+                        {
+                            case WarOutcome.Claims:
+                                if (e.A == Human) Feed(FeedKind.Report, $"Мир с {_names.Instrumental(other)}: район наш", null);
+                                else Feed(FeedKind.Loss, $"Мир навязан: {_names.Nominative(other)} забирает район", null);
+                                break;
+                            case WarOutcome.Reparations:
+                            case WarOutcome.DefenseWin:
+                                if (war.TributePayer == Human) Feed(FeedKind.Loss, $"Мы платим репарации {_names.Dative(other)}: {rate} в секунду до {Clock(war.TributeUntil / tps)}", null);
+                                else Feed(FeedKind.Report, $"{_names.Nominative(other)} платит нам {rate} в секунду до {Clock(war.TributeUntil / tps)}", null);
+                                break;
+                            case WarOutcome.WhiteByTimer:
+                                Feed(FeedKind.Report, $"Война с {_names.Instrumental(other)} кончилась сама: белый мир", null);
+                                break;
+                            default:
+                                Feed(FeedKind.Report, $"Перемирие с {_names.Instrumental(other)} до {until}", null);
+                                break;
+                        }
+                        break;
+                    }
+                }
+            }
+            for (int d = 1; d <= w.NationCount; d++)
+            {
+                if (d == Human) continue;
+                var war = w.WarOf(Human, d);
+                bool staging = alive && war.Status == WarStatus.Peace && Contact(d) && DivisionsAtBorder((byte)d, Human) >= StagingAlert;
+                if (staging && !_prevStaging[d]) Feed(FeedKind.Urgent, $"{_names.Nominative(d)} стягивает дивизии к нашей границе", FrontCell((byte)d));
+                _prevStaging[d] = staging;
+                bool held = alive && war.Status == WarStatus.War && war.Attacker == d && war.HoldAtt > 0;
+                if (held && !_prevHeldOnUs[d])
+                    Feed(FeedKind.Urgent, war.Goal == WarGoals.Claims
+                        ? $"{_names.Nominative(d)} удерживает наш район: {war.HoldAtt} / {_rules.War.GoalHoldSeconds} с"
+                        : $"{_names.Nominative(d)} держит нашу землю: {war.HoldAtt} / {_rules.War.GoalHoldSeconds} с до репараций", FrontCell((byte)d));
+                _prevHeldOnUs[d] = held;
+                if (_offerCards.ContainsKey(d) && !(war.Status == WarStatus.War && war.OfferFrom == d && w.Tick < war.OfferUntil)) CloseOffer(d);
+            }
+        }
+
+        /// <summary>Предложение белого мира от ИИ: карточка в сводке с «Принять» / «Отказать», живёт, пока живо предложение. Пауза не ставится.</summary>
+        void OfferCard(byte from)
+        {
+            CloseOffer(from);
+            var root = new VisualElement();
+            root.AddToClassList("panel");
+            root.AddToClassList("feed-card");
+            root.AddToClassList("offer");
+            var stripe = new VisualElement { pickingMode = PickingMode.Ignore };
+            stripe.AddToClassList("feed-stripe");
+            root.Add(stripe);
+            int sec = W.Tick / _config.TicksPerSecond;
+            Cell(root, "feed-head", $"СРОЧНО · {sec / 60}:{sec % 60:00}");
+            Cell(root, "feed-body", $"{_names.Nominative(from)} предлагает белый мир");
+            Cell(root, "feed-body", "каждый оставляет занятое");
+            var row = new VisualElement();
+            row.AddToClassList("offer-row");
+            var yes = new Button(() => Answer(from, 1)) { text = "Принять" };
+            yes.AddToClassList("btn");
+            var no = new Button(() => Answer(from, 0)) { text = "Отказать" };
+            no.AddToClassList("btn");
+            row.Add(yes);
+            row.Add(no);
+            root.Add(row);
+            root.RegisterCallback<PointerDownEvent>(e => e.StopPropagation());
+            var item = new FeedItem { Root = root, HideAt = Time.unscaledTime + 3600f, Cell = FrontCell(from) };
+            _feed.Add(root);
+            _feedItems.Add(item);
+            _offerCards[from] = item;
+        }
+
+        void CloseOffer(int from)
+        {
+            if (!_offerCards.TryGetValue(from, out var card)) return;
+            card.Root.RemoveFromHierarchy();
+            _feedItems.Remove(card);
+            _offerCards.Remove(from);
+        }
 
         void Feed(FeedKind kind, string text, Vector2Int? cell)
         {
@@ -1343,10 +1796,12 @@ namespace BattlePix.Game
             });
             _feed.Add(root); // column-reverse: новые сверху
             _feedItems.Add(item);
-            while (_feedItems.Count > MaxFeed)
+            while (_feedItems.Count > MaxFeed + _offerCards.Count)
             {
-                _feedItems[0].Root.RemoveFromHierarchy();
-                _feedItems.RemoveAt(0);
+                int victim = 0;
+                while (victim < _feedItems.Count - 1 && _offerCards.ContainsValue(_feedItems[victim])) victim++;
+                _feedItems[victim].Root.RemoveFromHierarchy();
+                _feedItems.RemoveAt(victim);
             }
         }
 
@@ -1356,11 +1811,24 @@ namespace BattlePix.Game
         static string PerSec(long c) => (c >= 0 ? "+" : "−") + (Math.Abs(c) / 100.0).ToString("0.0", Ru);
 
         /// <summary>Тексты причин отказа, словарь 02a: бюджет вместо золота.</summary>
-        string ReasonText(RejectReason r, int cost)
+        string ReasonText(RejectReason r, int cost) => ReasonText(r, cost, 0);
+
+        string ReasonText(RejectReason r, int cost, int enemy)
         {
             var w = W;
             switch (r)
             {
+                case RejectReason.AlreadyAtWar: return "Мы уже воюем";
+                case RejectReason.TruceActive:
+                {
+                    int tps = _config.TicksPerSecond;
+                    int left = enemy > 0 ? (w.WarOf(Human, enemy).TruceUntil - w.Tick + tps - 1) / tps : 0;
+                    return $"Перемирие ещё {Clock(left)}";
+                }
+                case RejectReason.ClaimInvalid: return "Район не подходит: нужен у границы, на их земле, не у их столицы";
+                case RejectReason.NotAtWar: return "Мы с ними не воюем";
+                case RejectReason.NoOffer: return "Предложение уже не действует";
+                case RejectReason.PeaceCooldown: return "Предлагать белый мир можно не чаще раза в минуту";
                 case RejectReason.NotEnoughGold:
                 {
                     long missing = cost - w.Nation(Human).Gold;
@@ -1369,7 +1837,7 @@ namespace BattlePix.Game
                     return $"Не хватает {(missing + 99) / 100} в бюджете, {when}";
                 }
                 case RejectReason.DivisionLimit: return $"Больше {w.MaxDivisionsPerNation} дивизий не набрать";
-                case RejectReason.NoContact: return "С ними нет общей границы";
+                case RejectReason.NoContact: return "Нет общей границы";
                 case RejectReason.AlreadyThere: return "Выделенные дивизии уже там";
                 case RejectReason.TargetInvalid: return "Фронт — только с живым соседом";
                 case RejectReason.DivisionInvalid: return "Сначала выделите дивизии: клик по плитке, Shift-клик, рамка или A — весь тыл";
