@@ -50,8 +50,8 @@ namespace BattlePix.Core
     }
 
     /// <summary>
-    /// Фронт (спека 5.3–5.5): соль тика, фаза A (параллельный Burst-джоб, только чтение), FlipHistory,
-    /// фаза B (последовательно), падение крепостей и столиц, уплотнение Frontier и FrontLen.
+    /// Фронт (спека 01 §5.3–5.5, 01b §5.2): соль тика, фаза A (параллельный Burst-джоб, только чтение), FlipHistory,
+    /// фаза B (последовательно), падение столиц, уплотнение Frontier, FrontLen и FrontTerrainLen.
     /// </summary>
     public sealed class FrontSystem : ISimSystem, IDisposable
     {
@@ -59,13 +59,14 @@ namespace BattlePix.Core
         public bool SingleThreaded;
 
         const int BatchSize = 256;
+        /// <summary>Записей шанса на пару: 2 флага столицы × 3 рельефа.</summary>
+        internal const int ChanceSlots = 2 * World.TerrainKinds;
 
         NativeArray<byte> _decision;
-        /// <summary>Шанс захвата a → d в bp: [(a × (N + 1) + d) × 4 + флаги], флаги: 1 — крепость d, 2 — столица d рядом.</summary>
+        /// <summary>Шанс захвата a → d в bp: [((a × (N + 1) + d) × 2 + столица d рядом) × 3 + рельеф пикселя-цели].</summary>
         NativeArray<int> _chance;
         NativeArray<byte> _alive;
         NativeArray<byte> _captured;
-        NativeList<int> _fallenForts;
         NativeList<int> _added;
         NativeArray<int> _dirty;
         int _n = -1;
@@ -77,10 +78,9 @@ namespace BattlePix.Core
                 DisposeArrays();
                 _n = nations;
                 int nn = (nations + 1) * (nations + 1);
-                _chance = new NativeArray<int>(nn * 4, Allocator.Persistent);
+                _chance = new NativeArray<int>(nn * ChanceSlots, Allocator.Persistent);
                 _alive = new NativeArray<byte>(nations + 1, Allocator.Persistent);
                 _captured = new NativeArray<byte>(nations + 1, Allocator.Persistent);
-                _fallenForts = new NativeList<int>(16, Allocator.Persistent);
                 _added = new NativeList<int>(1024, Allocator.Persistent);
                 _dirty = new NativeArray<int>(2, Allocator.Persistent);
             }
@@ -111,7 +111,6 @@ namespace BattlePix.Core
 
             // Фаза B: последовательно применить решения.
             for (int i = 0; i <= n; i++) _captured[i] = 0;
-            _fallenForts.Clear();
             _added.Clear();
             _dirty[0] = int.MaxValue;
             _dirty[1] = -1;
@@ -126,14 +125,11 @@ namespace BattlePix.Core
                 Terrain = world.TerrainRW,
                 EdgeMask = world.EdgeMaskRW,
                 Nations = world.NationsRW,
-                Forts = world.FortsRW,
-                MaxForts = world.MaxFortsPerNation,
                 Flips = flips,
                 FlipBase = sec * nn,
                 N = n,
                 W = w,
                 Captured = _captured,
-                FallenForts = _fallenForts,
                 Dirty = _dirty,
             }.Run();
             if (_added.Length > 0) world.FrontierRW.AddRange(_added.AsArray());
@@ -142,10 +138,6 @@ namespace BattlePix.Core
                 world.MarkDirtyRow(_dirty[0]);
                 world.MarkDirtyRow(_dirty[1]);
             }
-
-            // Павшие крепости: пересчитать круг FortCover по оставшимся крепостям этой нации.
-            for (int i = 0; i < _fallenForts.Length; i++)
-                Fortifications.OnFortFallen(world, _fallenForts[i]);
 
             // Павшие столицы: после всех переходов тика, по возрастанию id.
             bool anyDied = false;
@@ -173,7 +165,6 @@ namespace BattlePix.Core
                 Frontier = world.FrontierRW.AsArray(),
                 Owner = world.OwnerRW,
                 Terrain = world.TerrainRW,
-                FortCover = world.FortCoverRW,
                 CapitalCover = world.CapitalCoverRW,
                 EdgeMask = world.EdgeMaskRW,
                 Chance = _chance,
@@ -206,65 +197,64 @@ namespace BattlePix.Core
         }
 
         /// <summary>
-        /// Таблицы для фазы A: живые нации, столицы и шанс захвата по формуле 5.4 для каждой пары и каждого сочетания
-        /// «крепость / столица рядом». Удар — свойство пары, он уже внутри. Ничья земля: expandChance от любого соседа-нации.
+        /// Таблицы для фазы A (01b §5.2): живые нации и шанс захвата для каждой пары, флага «столица d рядом» и рельефа
+        /// пикселя-цели. Сила сторон уже в SidePow (FormationSystem.FillPow этого тика). att = 0 — шанс 0.
+        /// Ничья земля: expandChance от любого соседа-нации, рельеф не влияет.
         /// </summary>
         void FillTables(World world, int tick)
         {
             var rules = world.Rules;
             var fr = rules.Front;
-            int n = world.NationCount, stride = n + 1;
-            var strike = world.StrikeUntilRW;
+            int n = world.NationCount, stride = n + 1, kinds = World.TerrainKinds;
             for (int a = 0; a <= n; a++)
                 _alive[a] = a > 0 && world.NationsRW[a - 1].Alive != 0 ? (byte)1 : (byte)0;
             for (int a = 0; a <= n; a++)
             for (int d = 0; d <= n; d++)
             {
-                int baseIdx = (a * stride + d) * 4;
-                for (int f = 0; f < 4; f++) _chance[baseIdx + f] = 0;
+                int baseIdx = (a * stride + d) * ChanceSlots;
+                for (int f = 0; f < ChanceSlots; f++) _chance[baseIdx + f] = 0;
                 if (a == 0 || a == d || _alive[a] == 0) continue;
                 if (d == 0)
                 {
-                    for (int f = 0; f < 4; f++) _chance[baseIdx + f] = fr.ExpandChance_bp;
+                    for (int f = 0; f < ChanceSlots; f++) _chance[baseIdx + f] = fr.ExpandChance_bp;
                     continue;
                 }
                 if (world.FrontLength(a, d) <= 0) continue;
-                int att = world.Pow(a, d);
-                if (strike[(a - 1) * n + (d - 1)] > tick) att = FrontMath.MulBp(att, rules.Strikes.StrikeMult_bp);
-                int powD = world.Pow(d, a);
-                for (int f = 0; f < 4; f++)
+                for (int cap = 0; cap < 2; cap++)
                 {
-                    int defMult = 10000;
-                    if ((f & 1) != 0) defMult = FrontMath.MulBp(defMult, rules.Forts.FortMult_bp);
-                    if ((f & 2) != 0) defMult = FrontMath.MulBp(defMult, fr.CapitalMult_bp);
+                    int defMult = cap != 0 ? fr.CapitalMult_bp : 10000;
                     if (defMult > fr.DefenseMultCap_bp) defMult = fr.DefenseMultCap_bp;
-                    int def = FrontMath.MulBp(powD, defMult);
-                    _chance[baseIdx + f] = FrontMath.Chance(att, def, fr.WarChance_bp, fr.StallRatio_bp, fr.MaxChance_bp, out _);
+                    for (int tr = 0; tr < kinds; tr++)
+                    {
+                        int att = world.AttPow(a, d, tr);
+                        int def = FrontMath.MulBp(world.DefPow(d, a, tr), defMult);
+                        _chance[baseIdx + cap * kinds + tr] = att <= 0 ? 0
+                            : FrontMath.Chance(att, def, fr.WarChance_bp, fr.StallRatio_bp, fr.MaxChance_bp, out _);
+                    }
                 }
             }
         }
 
-        /// <summary>Гибель нации: земля ничья, крепости сняты, армия и золото обнулены, удары от неё и по ней сняты.</summary>
+        /// <summary>Только для тестов: шанс из таблицы фазы A после FillTables.</summary>
+        internal int ChanceForTest(World world, int a, int d, int cap, int tr)
+        {
+            Ensure(world.NationCount, world.FrontierRW.Length);
+            FillTables(world, world.Tick);
+            return _chance[(a * (world.NationCount + 1) + d) * ChanceSlots + cap * World.TerrainKinds + tr];
+        }
+
+        /// <summary>Гибель нации: земля ничья, соединения сняты, армия и золото обнулены.</summary>
         internal static void KillNation(World world, byte d)
         {
-            int n = world.NationCount;
             new KillNationJob
             {
                 Owner = world.OwnerRW,
-                FortCover = world.FortCoverRW,
                 CapitalCover = world.CapitalCoverRW,
                 Nation = d,
             }.Run();
             world.MarkAllDirty();
 
-            var forts = world.FortsRW;
-            for (int k = 0; k < world.MaxFortsPerNation; k++)
-            {
-                int slot = (d - 1) * world.MaxFortsPerNation + k;
-                var f = forts[slot];
-                f.Alive = 0;
-                forts[slot] = f;
-            }
+            FormationSystem.RemoveAll(world, d);
 
             var nations = world.NationsRW;
             var s = nations[d - 1];
@@ -273,15 +263,29 @@ namespace BattlePix.Core
             s.Pixels = 0;
             s.Gold = 0;
             s.Battalions = 0;
-            s.FortsAlive = 0;
+            s.Formations = 0;
             s.DiedAtTick = world.Tick;
             nations[d - 1] = s;
+        }
 
-            var strike = world.StrikeUntilRW;
-            for (int x = 0; x < n; x++)
+        /// <summary>CapitalCover: круги capitalRadius вокруг столиц живых наций. После генерации карты.</summary>
+        internal static void StampCapitals(World world)
+        {
+            var cover = world.CapitalCoverRW;
+            int w = world.Width, h = world.Height, r = world.Rules.Front.CapitalRadius;
+            for (int k = 0; k < world.NationCount; k++)
             {
-                strike[(d - 1) * n + x] = 0;
-                strike[x * n + (d - 1)] = 0;
+                var nat = world.NationsRW[k];
+                if (nat.Alive == 0 || nat.Capital < 0) continue;
+                int cx = nat.Capital % w, cy = nat.Capital / w;
+                for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    int x = cx + dx, y = cy + dy;
+                    if (x < 0 || y < 0 || x >= w || y >= h || dx * dx + dy * dy > r * r) continue;
+                    int i = y * w + x;
+                    cover[i] = (ushort)(cover[i] | (1 << k));
+                }
             }
         }
 
@@ -315,6 +319,7 @@ namespace BattlePix.Core
                 Owner = world.OwnerRW,
                 Terrain = world.TerrainRW,
                 FrontLen = world.FrontLenRW,
+                FrontTerrainLen = world.FrontTerrainLenRW,
                 EdgeMask = world.EdgeMaskRW,
                 W = world.Width,
                 Stride = world.NationCount + 1,
@@ -328,7 +333,6 @@ namespace BattlePix.Core
             if (_chance.IsCreated) _chance.Dispose();
             if (_alive.IsCreated) _alive.Dispose();
             if (_captured.IsCreated) _captured.Dispose();
-            if (_fallenForts.IsCreated) _fallenForts.Dispose();
             if (_added.IsCreated) _added.Dispose();
             if (_dirty.IsCreated) _dirty.Dispose();
         }
@@ -348,7 +352,6 @@ namespace BattlePix.Core
         [ReadOnly] public NativeArray<int> Frontier;
         [ReadOnly] public NativeArray<byte> Owner;
         [ReadOnly] public NativeArray<byte> Terrain;
-        [ReadOnly] public NativeArray<ushort> FortCover;
         [ReadOnly] public NativeArray<ushort> CapitalCover;
         [ReadOnly] public NativeArray<byte> EdgeMask;
         [ReadOnly] public NativeArray<int> Chance;
@@ -375,13 +378,9 @@ namespace BattlePix.Core
         {
             if (Terrain[t] == (byte)Core.Terrain.Water) return 0;
             int d = Owner[t];
-            int flags = 0;
-            if (d != 0)
-            {
-                int bit = 1 << (d - 1);
-                if ((FortCover[t] & bit) != 0) flags |= 1;
-                if ((CapitalCover[t] & bit) != 0) flags |= 2;
-            }
+            // Индекс в таблице пары: (столица d рядом) × 3 + рельеф пикселя-цели (tr = terrain − 1).
+            int sub = Terrain[t] - 1;
+            if (d != 0 && (CapitalCover[t] & (1 << (d - 1))) != 0) sub += World.TerrainKinds;
             byte edge = EdgeMask[t];
             // Соседи на суше: владелец или −1. Сколько соседей у каждого атакующего — для множителя окружения.
             int o0 = Land(t, edge, 0), o1 = Land(t, edge, 1), o2 = Land(t, edge, 2), o3 = Land(t, edge, 3);
@@ -393,7 +392,7 @@ namespace BattlePix.Core
                 uint abit = 1u << a;
                 if ((seen & abit) != 0) continue; // один сосед бросает один раз
                 seen |= abit;
-                int chance = Chance[(a * Stride + d) * 4 + flags];
+                int chance = Chance[(a * Stride + d) * FrontSystem.ChanceSlots + sub];
                 if (d != 0 && chance > 0)
                 {
                     int around = (o0 == a ? 1 : 0) + (o1 == a ? 1 : 0) + (o2 == a ? 1 : 0) + (o3 == a ? 1 : 0);
@@ -420,12 +419,9 @@ namespace BattlePix.Core
         [ReadOnly] public NativeArray<byte> Terrain;
         [ReadOnly] public NativeArray<byte> EdgeMask;
         public NativeArray<NationState> Nations;
-        public NativeArray<Fort> Forts;
-        public int MaxForts;
         public NativeArray<short> Flips;
         public int FlipBase, N, W;
         public NativeArray<byte> Captured;
-        public NativeList<int> FallenForts;
         public NativeArray<int> Dirty;
 
         public void Execute()
@@ -447,16 +443,6 @@ namespace BattlePix.Core
                     var nd = Nations[d - 1];
                     nd.Pixels--;
                     Flips[FlipBase + (a - 1) * N + (d - 1)]++;
-                    for (int k = 0; k < MaxForts; k++)
-                    {
-                        int slot = (d - 1) * MaxForts + k;
-                        var f = Forts[slot];
-                        if (f.Alive == 0 || f.Pixel != t) continue;
-                        f.Alive = 0;
-                        Forts[slot] = f;
-                        nd.FortsAlive--;
-                        FallenForts.Add(slot);
-                    }
                     if (nd.Capital == t) Captured[d] = 1;
                     Nations[d - 1] = nd;
                 }
@@ -505,6 +491,7 @@ namespace BattlePix.Core
     /// <summary>
     /// Уплотнение Frontier и FrontLen: для каждого пограничного пикселя рёбра к соседям E и S с другим владельцем на суше.
     /// Оба конца такого ребра пограничные, поэтому каждое ребро посчитано ровно один раз.
+    /// FrontTerrainLen[a, b, tr] — те же рёбра по рельефу пикселя b (01b §4.3).
     /// </summary>
     [BurstCompile(CompileSynchronously = true)]
     public struct FrontLenJob : IJob
@@ -516,12 +503,14 @@ namespace BattlePix.Core
         [ReadOnly] public NativeArray<byte> Owner;
         [ReadOnly] public NativeArray<byte> Terrain;
         public NativeArray<int> FrontLen;
+        public NativeArray<int> FrontTerrainLen;
         [ReadOnly] public NativeArray<byte> EdgeMask;
         public int W, Stride;
 
         public void Execute()
         {
             for (int i = 0; i < FrontLen.Length; i++) FrontLen[i] = 0;
+            for (int i = 0; i < FrontTerrainLen.Length; i++) FrontTerrainLen[i] = 0;
             int write = 0;
             for (int i = 0; i < Frontier.Length; i++)
             {
@@ -534,28 +523,29 @@ namespace BattlePix.Core
                 Frontier[write++] = p;
                 int a = Owner[p];
                 byte edge = EdgeMask[p];
-                if ((edge & 2) != 0) Edge(a, p + 1); // E
-                if ((edge & 4) != 0) Edge(a, p - W); // S
+                if ((edge & 2) != 0) Edge(a, p, p + 1); // E
+                if ((edge & 4) != 0) Edge(a, p, p - W); // S
             }
             Written[0] = write;
         }
 
-        void Edge(int a, int q)
+        void Edge(int a, int p, int q)
         {
             if (Terrain[q] == (byte)Core.Terrain.Water) return;
             int b = Owner[q];
             if (b == a) return;
             FrontLen[a * Stride + b]++;
             FrontLen[b * Stride + a]++;
+            FrontTerrainLen[(a * Stride + b) * World.TerrainKinds + Terrain[q] - 1]++;
+            FrontTerrainLen[(b * Stride + a) * World.TerrainKinds + Terrain[p] - 1]++;
         }
     }
 
-    /// <summary>Гибель нации: все её пиксели ничьи, её биты FortCover и CapitalCover сняты.</summary>
+    /// <summary>Гибель нации: все её пиксели ничьи, её бит CapitalCover снят.</summary>
     [BurstCompile(CompileSynchronously = true)]
     public struct KillNationJob : IJob
     {
         public NativeArray<byte> Owner;
-        public NativeArray<ushort> FortCover;
         public NativeArray<ushort> CapitalCover;
         public byte Nation;
 
@@ -565,7 +555,6 @@ namespace BattlePix.Core
             for (int p = 0; p < Owner.Length; p++)
             {
                 if (Owner[p] == Nation) Owner[p] = 0;
-                FortCover[p] = (ushort)(FortCover[p] & mask);
                 CapitalCover[p] = (ushort)(CapitalCover[p] & mask);
             }
         }

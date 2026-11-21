@@ -21,9 +21,12 @@ namespace BattlePix.Core.Tests
         public static Rules IdleAi()
         {
             var r = Rules().Clone();
+            // Думает раз в int.MaxValue тиков со сдвигом id − 1: в тестах (≤ 30 000 тиков) — только на тике id − 1.
+            // Пороги сил недостижимы, денег на набор с таким запасом нет: и этот единственный раз ничего не делает.
             r.Ai.Profiles["idle"] = new AiProfile
             {
-                FortLossThresholdPx = 1000000, TargetDensity_milli = 0, MinBattalions = 0, StrikeSurplusBattalions = 1000000,
+                ThinkIntervalTicks = int.MaxValue, RetreatStrength_bp = 0, RearStrength_bp = 0, DeployStrength_bp = 1000000,
+                AttackStrength_bp = 1000000, ThreatRatio_bp = int.MaxValue, RecruitReserve_c = int.MaxValue / 2,
             };
             for (int id = 1; id <= r.NationCount; id++) r.AssignProfile(id, "idle");
             return r;

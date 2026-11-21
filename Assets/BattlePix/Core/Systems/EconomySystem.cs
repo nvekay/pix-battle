@@ -1,8 +1,9 @@
 namespace BattlePix.Core
 {
     /// <summary>
-    /// Экономика (спека 5.6), раз в секунду на последнем тике секунды: доход с земли и плоский доход, содержание армии,
-    /// дезертирство по одному батальону в секунду, если золото ушло в минус. У мёртвой нации ничего не считается.
+    /// Экономика (спека 01 §5.6, дельта 01b §5.4), раз в секунду на последнем тике секунды: доход с земли и плоский доход,
+    /// содержание батальонов по типам и штабов, дезертирство по одному батальону в секунду, если золото ушло в минус.
+    /// У мёртвой нации ничего не считается. Потери и пополнение идут после (FormationLossStep).
     /// </summary>
     public sealed class EconomySystem : ISimSystem
     {
@@ -16,12 +17,14 @@ namespace BattlePix.Core
             {
                 var n = nations[i];
                 if (n.Alive == 0) continue;
+                byte id = (byte)(i + 1);
                 long income = e.FlatIncome_c + (long)n.Pixels * 100 / e.PixelsPerGold;
-                long upkeep = (long)n.Battalions * e.Upkeep_c_per_battalion;
+                long upkeep = FormationSystem.Upkeep(world, id);
                 long gold = n.Gold + income - upkeep;
                 if (gold < 0)
                 {
-                    if (n.Battalions > 0) n.Battalions -= 1;
+                    FormationSystem.Desert(world, id);
+                    n = nations[i]; // Desert меняет Battalions и BattalionsLost
                     gold = 0;
                 }
                 n.Gold = gold > int.MaxValue ? int.MaxValue : (int)gold;
@@ -29,32 +32,14 @@ namespace BattlePix.Core
             }
         }
 
-        /// <summary>Чистый доход нации в сотых за секунду (для UI и ИИ): доход минус содержание.</summary>
-        public static int NetIncome(World world, byte nation)
+        /// <summary>Доход нации в сотых за секунду: земля + плоский.</summary>
+        public static int Income(World world, byte nation)
         {
             var e = world.Rules.Economy;
-            var n = world.Nation(nation);
-            return e.FlatIncome_c + n.Pixels * 100 / e.PixelsPerGold - n.Battalions * e.Upkeep_c_per_battalion;
+            return e.FlatIncome_c + world.Nation(nation).Pixels * 100 / e.PixelsPerGold;
         }
-    }
 
-    /// <summary>Удары (спека 5.2, п. 4): обнулить истёкшие StrikeUntil и удары от мёртвых и по мёртвым.</summary>
-    public sealed class StrikeSystem : ISimSystem
-    {
-        public void Tick(World world, CommandContext ctx)
-        {
-            int n = world.NationCount, next = world.Tick + 1;
-            var strike = world.StrikeUntilRW;
-            for (int a = 0; a < n; a++)
-            {
-                bool aliveA = world.NationsRW[a].Alive != 0;
-                for (int d = 0; d < n; d++)
-                {
-                    int i = a * n + d;
-                    if (strike[i] == 0) continue;
-                    if (strike[i] <= next || !aliveA || world.NationsRW[d].Alive == 0) strike[i] = 0;
-                }
-            }
-        }
+        /// <summary>Чистый доход нации в сотых за секунду (для UI и ИИ): доход минус содержание, без пополнения.</summary>
+        public static int NetIncome(World world, byte nation) => (int)(Income(world, nation) - FormationSystem.Upkeep(world, nation));
     }
 }

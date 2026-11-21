@@ -1,5 +1,5 @@
 {
-  "format": 1,
+  "format": 2,
   "mapgen": {
     "octaves": 4,
     "baseCellPx": 64,
@@ -30,23 +30,38 @@
   },
   "economy": {
     "startGold_c": 30000,
-    "startBattalions": 3,
     "flatIncome_c": 200,
     "pixelsPerGold": 2000,
-    "battalionCost_c": 20000,
-    "upkeep_c_per_battalion": 25,
     "battalionCap": 60
   },
-  "forts": {
-    "fortCosts_c": [40000, 60000, 90000, 135000, 202500],
-    "maxFortsPerNation": 8,
-    "fortRadius": 16,
-    "fortMinSpacing": 16,
-    "fortMult_bp": 30000
+  "terrain": {
+    "terrainDefense_bp": [10000, 12500, 15000]
   },
-  "strikes": {
-    "strikeMult_bp": 30000,
-    "strikeDurationTicks": 200
+  "units": [
+    {
+      "id": "infantry", "cost_c": 15000, "upkeep_c": 10, "attack": 10, "defense": 14,
+      "attackTerrain_bp": [10000, 10000, 9000], "defenseTerrain_bp": [10000, 10000, 10000]
+    },
+    {
+      "id": "armor", "cost_c": 40000, "upkeep_c": 30, "attack": 26, "defense": 14,
+      "attackTerrain_bp": [13000, 8000, 4000], "defenseTerrain_bp": [10000, 8000, 5000]
+    }
+  ],
+  "formations": {
+    "hqCost_c": 30000,
+    "hqUpkeep_c": 20,
+    "maxBattalions": 12,
+    "maxFormationsPerNation": 16,
+    "transferTicks": 300,
+    "attackingDefense_bp": 7000,
+    "attackLoss_bp": 50,
+    "defendLoss_bp": 20,
+    "lossRatioMin_bp": 5000,
+    "lossRatioMax_bp": 20000,
+    "reinforceFront_bp": 30,
+    "reinforceRear_bp": 150,
+    "reinforceCostMult_bp": 2000,
+    "startInfantry": 3
   },
   "end": {
     "victoryShare_bp": 4000,

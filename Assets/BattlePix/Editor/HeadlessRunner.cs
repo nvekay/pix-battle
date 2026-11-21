@@ -21,7 +21,7 @@ namespace BattlePix.Editor
     ///   ... -replay &lt;файл&gt; [-ignoreDataHash] [-human N]
     ///   ... -determinism &lt;сид&gt; [-ticks N]
     ///   ... -recordReplay &lt;файл&gt; [-seed N] [-ticks N] [-commands 200] [-human N] — синтетический реплей для проверки
-    ///   ... -seeds 1-100 -profile 1=no_forts [-baseline Reports/run/report.json] — абляция профиля ИИ
+    ///   ... -seeds 1-100 -profile 1=spread [-baseline Reports/run/report.json] — абляция профиля ИИ
     ///   ... -analyze &lt;реплей&gt; [-out папка] — разбор партии человека, пишет analysis.md
     ///   -safetyChecks — включить проверки безопасности Burst (по умолчанию выключены: замер тика как в игроке).
     /// Партии идут с правилами из Data/. -ticks — страховочный лимит: партию заканчивают правила.
@@ -98,11 +98,12 @@ namespace BattlePix.Editor
                     for (int k = 0; k < perTick[sim.World.Tick]; k++)
                     {
                         // Случайные игровые команды человека: часть заведомо отклонится, это тоже проверка реплея.
+                        int slot = rng.NextInt(4) - 1; // −1..2: новое соединение или одно из первых трёх
                         switch (rng.NextInt(3))
                         {
-                            case 0: sim.EnqueueFromUi(CommandType.Recruit, human, 0, 0); break;
-                            case 1: sim.EnqueueFromUi(CommandType.BuildFort, human, rng.NextInt(sim.World.PixelCount), 0); break;
-                            default: sim.EnqueueFromUi(CommandType.Strike, human, 1 + rng.NextInt(rules.NationCount), 0); break;
+                            case 0: sim.EnqueueFromUi(CommandType.RecruitUnit, human, slot, rng.NextInt(2)); break;
+                            case 1: sim.EnqueueFromUi(CommandType.AssignFormation, human, slot < 0 ? 0 : slot, rng.NextInt(rules.NationCount + 1)); break;
+                            default: sim.EnqueueFromUi(CommandType.SetOrder, human, slot < 0 ? 0 : slot, rng.NextInt(2)); break;
                         }
                     }
                     sim.Step();
@@ -125,7 +126,7 @@ namespace BattlePix.Editor
             ulong? crashSeed = a.Has("-crashSeed") ? ulong.Parse(a.Get("-crashSeed", "0"), CultureInfo.InvariantCulture) : (ulong?)null;
             int crashTick = a.GetInt("-crashTick", ticks / 2);
 
-            // -profile 1=no_forts[,3=no_strikes]: назначение профилей поверх ai.json.
+            // -profile 1=spread[,3=no_armor]: назначение профилей поверх ai.json.
             var overrides = new List<KeyValuePair<int, string>>();
             foreach (var part in a.Get("-profile", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
             {
@@ -267,9 +268,9 @@ namespace BattlePix.Editor
                         Profile = rules.ProfileName(n.Id),
                         DiedAtTick = n.DiedAtTick,
                         Pixels = n.Pixels,
-                        Recruits = n.Recruits,
-                        FortsBuilt = n.FortsBuilt,
-                        Strikes = n.Strikes,
+                        RecruitedInf = n.RecruitedInf,
+                        RecruitedArmor = n.RecruitedArmor,
+                        BattalionsLost = n.BattalionsLost,
                         NeighboursAt5 = neighbours5[i],
                     };
                 }
@@ -501,9 +502,9 @@ namespace BattlePix.Editor
         public string Profile;
         public int DiedAtTick;
         public int Pixels;
-        public int Recruits;
-        public int FortsBuilt;
-        public int Strikes;
+        public int RecruitedInf;
+        public int RecruitedArmor;
+        public int BattalionsLost;
         /// <summary>Живых соседей с общей границей на 5-й минуте.</summary>
         public int NeighboursAt5;
     }
@@ -722,8 +723,8 @@ namespace BattlePix.Editor
                         .Select(g => string.Format(inv, "{0}{1}: наций {2}, побед {3} ({4:0}%), пали до 8-й мин {5} ({6:0}%)",
                             g.Key, g.Key == 5 ? "+" : "", g.Count(), g.Count(t => t.r.Winner == t.x.Id), 100.0 * g.Count(t => t.r.Winner == t.x.Id) / g.Count(),
                             g.Count(t => t.x.DiedAtTick >= 0 && t.x.DiedAtTick < 4800), 100.0 * g.Count(t => t.x.DiedAtTick >= 0 && t.x.DiedAtTick < 4800) / g.Count()))));
-                sb.AppendLine(string.Format(inv, "- На нацию за партию в среднем: батальонов {0:0.0}, крепостей {1:0.0}, ударов {2:0.0}; пали до конца партии {3:0}%",
-                    all.Average(x => x.Recruits), all.Average(x => x.FortsBuilt), all.Average(x => x.Strikes), 100.0 * all.Count(x => x.DiedAtTick >= 0) / all.Count));
+                sb.AppendLine(string.Format(inv, "- На нацию за партию в среднем: набрано пехоты {0:0.0}, брони {1:0.0}, погибло батальонов {2:0.0}; пали до конца партии {3:0}%",
+                    all.Average(x => x.RecruitedInf), all.Average(x => x.RecruitedArmor), all.Average(x => x.BattalionsLost), 100.0 * all.Count(x => x.DiedAtTick >= 0) / all.Count));
                 sb.AppendLine();
             }
 

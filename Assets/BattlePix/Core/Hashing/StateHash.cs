@@ -7,12 +7,14 @@ namespace BattlePix.Core
     /// <summary>
     /// Хеш состояния: FNV-1a 64 по байтам (int — 4 байта LE, short — 2 байта LE, ulong — 8 байт LE) в порядке:
     /// 1) Tick, Owner, Terrain;
-    /// 2) для каждой нации по id: Id, Alive, Capital, Pixels, Gold, Battalions, FortsAlive, DiedAtTick, Recruits, FortsBuilt, Strikes, LastStrikeTick;
-    /// 3) Forts по слотам: Pixel, Owner, Alive;
-    /// 4) StrikeUntil, FlipHistory целиком;
-    /// 5) state и inc всех потоков в порядке RngStream;
-    /// 6) IsOver, EndReason, Winner.
-    /// FortCover, FrontLen и Frontier — производные, в хеш не входят.
+    /// 2) для каждой нации по id: Id, Alive, Capital, Pixels, Gold, Battalions, Formations, DiedAtTick,
+    ///    RecruitedInf, RecruitedArmor, BattalionsLost;
+    /// 3) Formations по слотам: Owner, Alive, Front, Order, ArriveTick;
+    /// 4) Battalions по слотам: Type, Alive, Strength_bp;
+    /// 5) FlipHistory целиком;
+    /// 6) state и inc всех потоков в порядке RngStream;
+    /// 7) IsOver, EndReason, Winner.
+    /// CapitalCover, FrontLen, FrontTerrainLen, SidePow и Frontier — производные, в хеш не входят (спека 01b §4.5).
     /// </summary>
     public static class StateHash
     {
@@ -31,8 +33,8 @@ namespace BattlePix.Core
                     Owner = world.Owner,
                     Terrain = world.Terrain,
                     Nations = world.Nations,
-                    Forts = world.Forts,
-                    StrikeUntil = world.StrikeUntil,
+                    Formations = world.Formations,
+                    Battalions = world.Battalions,
                     FlipHistory = world.FlipHistory,
                     Rng = rngNative.AsReadOnly(),
                     IsOver = world.IsOver ? (byte)1 : (byte)0,
@@ -57,8 +59,8 @@ namespace BattlePix.Core
         [ReadOnly] public NativeArray<byte>.ReadOnly Owner;
         [ReadOnly] public NativeArray<byte>.ReadOnly Terrain;
         [ReadOnly] public NativeArray<NationState>.ReadOnly Nations;
-        [ReadOnly] public NativeArray<Fort>.ReadOnly Forts;
-        [ReadOnly] public NativeArray<int>.ReadOnly StrikeUntil;
+        [ReadOnly] public NativeArray<Formation>.ReadOnly Formations;
+        [ReadOnly] public NativeArray<Battalion>.ReadOnly Battalions;
         [ReadOnly] public NativeArray<short>.ReadOnly FlipHistory;
         [ReadOnly] public NativeArray<ulong>.ReadOnly Rng;
         public byte IsOver;
@@ -75,6 +77,12 @@ namespace BattlePix.Core
             uint u = unchecked((uint)v);
             for (int i = 0; i < 4; i++) h = B(h, (byte)(u >> (8 * i)));
             return h;
+        }
+
+        static ulong S(ulong h, short v)
+        {
+            ushort u = unchecked((ushort)v);
+            return B(B(h, (byte)u), (byte)(u >> 8));
         }
 
         public void Execute()
@@ -94,29 +102,32 @@ namespace BattlePix.Core
                 h = I(h, n.Pixels);
                 h = I(h, n.Gold);
                 h = I(h, n.Battalions);
-                h = B(h, n.FortsAlive);
+                h = B(h, n.Formations);
                 h = I(h, n.DiedAtTick);
-                h = I(h, n.Recruits);
-                h = I(h, n.FortsBuilt);
-                h = I(h, n.Strikes);
-                h = I(h, n.LastStrikeTick);
+                h = I(h, n.RecruitedInf);
+                h = I(h, n.RecruitedArmor);
+                h = I(h, n.BattalionsLost);
             }
 
-            for (int i = 0; i < Forts.Length; i++)
+            for (int i = 0; i < Formations.Length; i++)
             {
-                var f = Forts[i];
-                h = I(h, f.Pixel);
+                var f = Formations[i];
                 h = B(h, f.Owner);
                 h = B(h, f.Alive);
+                h = B(h, f.Front);
+                h = B(h, f.Order);
+                h = I(h, f.ArriveTick);
             }
 
-            for (int i = 0; i < StrikeUntil.Length; i++) h = I(h, StrikeUntil[i]);
-            for (int i = 0; i < FlipHistory.Length; i++)
+            for (int i = 0; i < Battalions.Length; i++)
             {
-                ushort u = unchecked((ushort)FlipHistory[i]);
-                h = B(h, (byte)u);
-                h = B(h, (byte)(u >> 8));
+                var b = Battalions[i];
+                h = B(h, b.Type);
+                h = B(h, b.Alive);
+                h = S(h, b.Strength_bp);
             }
+
+            for (int i = 0; i < FlipHistory.Length; i++) h = S(h, FlipHistory[i]);
 
             for (int i = 0; i < Rng.Length; i++)
             {
@@ -150,22 +161,30 @@ namespace BattlePix.Core
                 h = Fnv1a64.AddInt32(h, n.Pixels);
                 h = Fnv1a64.AddInt32(h, n.Gold);
                 h = Fnv1a64.AddInt32(h, n.Battalions);
-                h = Fnv1a64.Add(h, n.FortsAlive);
+                h = Fnv1a64.Add(h, n.Formations);
                 h = Fnv1a64.AddInt32(h, n.DiedAtTick);
-                h = Fnv1a64.AddInt32(h, n.Recruits);
-                h = Fnv1a64.AddInt32(h, n.FortsBuilt);
-                h = Fnv1a64.AddInt32(h, n.Strikes);
-                h = Fnv1a64.AddInt32(h, n.LastStrikeTick);
+                h = Fnv1a64.AddInt32(h, n.RecruitedInf);
+                h = Fnv1a64.AddInt32(h, n.RecruitedArmor);
+                h = Fnv1a64.AddInt32(h, n.BattalionsLost);
             }
-            var forts = world.Forts;
-            for (int i = 0; i < forts.Length; i++)
+            var formations = world.Formations;
+            for (int i = 0; i < formations.Length; i++)
             {
-                h = Fnv1a64.AddInt32(h, forts[i].Pixel);
-                h = Fnv1a64.Add(h, forts[i].Owner);
-                h = Fnv1a64.Add(h, forts[i].Alive);
+                var f = formations[i];
+                h = Fnv1a64.Add(h, f.Owner);
+                h = Fnv1a64.Add(h, f.Alive);
+                h = Fnv1a64.Add(h, f.Front);
+                h = Fnv1a64.Add(h, f.Order);
+                h = Fnv1a64.AddInt32(h, f.ArriveTick);
             }
-            var strikes = world.StrikeUntil;
-            for (int i = 0; i < strikes.Length; i++) h = Fnv1a64.AddInt32(h, strikes[i]);
+            var battalions = world.Battalions;
+            for (int i = 0; i < battalions.Length; i++)
+            {
+                var b = battalions[i];
+                h = Fnv1a64.Add(h, b.Type);
+                h = Fnv1a64.Add(h, b.Alive);
+                h = Fnv1a64.AddInt16(h, b.Strength_bp);
+            }
             var flips = world.FlipHistory;
             for (int i = 0; i < flips.Length; i++) h = Fnv1a64.AddInt16(h, flips[i]);
             var rng = new ulong[RngStreams.SnapshotLength];

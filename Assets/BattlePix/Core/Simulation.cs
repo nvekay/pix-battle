@@ -69,7 +69,7 @@ namespace BattlePix.Core
             TickLimit = tickLimit;
             World = new World(config.Width, config.Height, rules.NationCount, seed, rules);
             MapGenerator.Generate(World);
-            Fortifications.StampCapitals(World);
+            FrontSystem.StampCapitals(World);
             FrontSystem.RebuildFrontier(World);
             FrontSystem.RecountFrontLen(World);
             World.MarkAllDirty();
@@ -168,6 +168,9 @@ namespace BattlePix.Core
                 case CommandType.Recruit:
                 case CommandType.BuildFort:
                 case CommandType.Strike:
+                case CommandType.RecruitUnit:
+                case CommandType.AssignFormation:
+                case CommandType.SetOrder:
                     return GameCommands.Validate(World, c);
                 default:
                     return RejectReason.UnknownType;
@@ -183,9 +186,9 @@ namespace BattlePix.Core
                 case CommandType.DebugSetOwner:
                     World.SetOwner(c.A, (byte)c.B);
                     break;
-                case CommandType.Recruit:
-                case CommandType.BuildFort:
-                case CommandType.Strike:
+                case CommandType.RecruitUnit:
+                case CommandType.AssignFormation:
+                case CommandType.SetOrder:
                     GameCommands.Apply(World, c);
                     break;
             }

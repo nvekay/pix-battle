@@ -10,14 +10,15 @@ namespace BattlePix.Core
     /// </summary>
     public sealed class Rules
     {
-        public const int MaxNations = 16; // FortCover — ushort, бит на нацию
+        public const int MaxNations = 16; // CapitalCover — ushort, бит на нацию
 
         public int NationCount { get; private set; }
         public MapGenRules MapGen { get; private set; }
         public FrontRules Front { get; private set; }
         public EconomyRules Economy { get; private set; }
-        public FortRules Forts { get; private set; }
-        public StrikeRules Strikes { get; private set; }
+        public TerrainRules Terrain { get; private set; }
+        public UnitRules[] Units { get; private set; }
+        public FormationRules Formations { get; private set; }
         public EndRules End { get; private set; }
         public AiFile Ai { get; private set; }
 
@@ -30,8 +31,9 @@ namespace BattlePix.Core
             MapGen = file.MapGen;
             Front = file.Front;
             Economy = file.Economy;
-            Forts = file.Forts;
-            Strikes = file.Strikes;
+            Terrain = file.Terrain;
+            Units = file.Units;
+            Formations = file.Formations;
             End = file.End;
             Ai = ai;
             _profileNameByNation = new string[nationCount];
@@ -89,7 +91,7 @@ namespace BattlePix.Core
         /// <summary>Глубокая копия через JSON: тесты и абляции меняют копию, не общий объект.</summary>
         public Rules Clone()
         {
-            var file = new RulesFile { MapGen = MapGen, Front = Front, Economy = Economy, Forts = Forts, Strikes = Strikes, End = End };
+            var file = new RulesFile { MapGen = MapGen, Front = Front, Economy = Economy, Terrain = Terrain, Units = Units, Formations = Formations, End = End };
             var fileCopy = JsonConvert.DeserializeObject<RulesFile>(JsonConvert.SerializeObject(file), Strict);
             var aiCopy = JsonConvert.DeserializeObject<AiFile>(JsonConvert.SerializeObject(Ai), Strict);
             var r = new Rules(NationCount, fileCopy, aiCopy);
@@ -129,20 +131,6 @@ namespace BattlePix.Core
         public AiProfile Profile(byte nationId) => _profileByNation[nationId - 1];
         public string ProfileName(byte nationId) => _profileNameByNation[nationId - 1];
 
-        /// <summary>Цена следующей крепости при fortsAlive стоящих: таблица, после её конца ×3/2 за шаг.</summary>
-        public int FortCost(int fortsAlive)
-        {
-            var t = Forts.FortCosts_c;
-            if (fortsAlive < t.Length) return t[fortsAlive];
-            long c = t[t.Length - 1];
-            for (int i = t.Length - 1; i < fortsAlive; i++)
-            {
-                c = c * 3 / 2;
-                if (c > int.MaxValue) return int.MaxValue;
-            }
-            return (int)c;
-        }
-
         internal static void Require(bool ok, string file, string message)
         {
             if (!ok) throw new FormatException(file + ": " + message);
@@ -159,27 +147,38 @@ namespace BattlePix.Core
 
     public sealed class RulesFile
     {
-        public const int SupportedFormat = 1;
+        /// <summary>2 — фронты и соединения (спека 01b): без forts/strikes, с terrain/units/formations.</summary>
+        public const int SupportedFormat = 2;
+        public const int MaxUnitTypes = 8;
 
         [JsonProperty("format")] public int Format = SupportedFormat;
         [JsonProperty("mapgen")] public MapGenRules MapGen = new MapGenRules();
         [JsonProperty("front")] public FrontRules Front = new FrontRules();
         [JsonProperty("economy")] public EconomyRules Economy = new EconomyRules();
-        [JsonProperty("forts")] public FortRules Forts = new FortRules();
-        [JsonProperty("strikes")] public StrikeRules Strikes = new StrikeRules();
+        [JsonProperty("terrain")] public TerrainRules Terrain = new TerrainRules();
+        [JsonProperty("units")] public UnitRules[] Units = UnitRules.CreateDefault();
+        [JsonProperty("formations")] public FormationRules Formations = new FormationRules();
         [JsonProperty("end")] public EndRules End = new EndRules();
 
         public void Validate()
         {
             Rules.Require(Format == SupportedFormat, "rules", $"format {Format} is not supported, expected {SupportedFormat}");
-            Rules.Require(MapGen != null && Front != null && Economy != null && Forts != null && Strikes != null && End != null,
+            Rules.Require(MapGen != null && Front != null && Economy != null && Terrain != null && Units != null && Formations != null && End != null,
                 "rules", "all sections are required");
             MapGen.Validate();
             Front.Validate();
             Economy.Validate();
-            Forts.Validate();
-            Strikes.Validate();
+            Terrain.Validate();
+            Rules.Require(Units.Length >= 1 && Units.Length <= MaxUnitTypes, "rules.units", $"units must have 1..{MaxUnitTypes} types");
+            for (int i = 0; i < Units.Length; i++)
+            {
+                Rules.Require(Units[i] != null, "rules.units", $"unit {i} is empty");
+                Units[i].Validate(i);
+            }
+            Formations.Validate();
             End.Validate();
+            Rules.Require(Formations.StartInfantry <= Formations.MaxBattalions && Formations.StartInfantry <= Economy.BattalionCap,
+                "rules.formations", "startInfantry must fit one formation and battalionCap");
         }
     }
 
@@ -254,52 +253,105 @@ namespace BattlePix.Core
     public sealed class EconomyRules
     {
         [JsonProperty("startGold_c")] public int StartGold_c = 30000;
-        [JsonProperty("startBattalions")] public int StartBattalions = 3;
         [JsonProperty("flatIncome_c")] public int FlatIncome_c = 200;
         [JsonProperty("pixelsPerGold")] public int PixelsPerGold = 2000;
-        [JsonProperty("battalionCost_c")] public int BattalionCost_c = 20000;
-        [JsonProperty("upkeep_c_per_battalion")] public int Upkeep_c_per_battalion = 25;
         [JsonProperty("battalionCap")] public int BattalionCap = 60;
 
         internal void Validate()
         {
-            Rules.Require(StartGold_c >= 0 && StartBattalions >= 0, "rules.economy", "start values must be >= 0");
+            Rules.Require(StartGold_c >= 0, "rules.economy", "startGold_c must be >= 0");
             Rules.Require(FlatIncome_c >= 0, "rules.economy", "flatIncome_c must be >= 0");
             Rules.Require(PixelsPerGold >= 1, "rules.economy", "pixelsPerGold must be >= 1");
-            Rules.Require(BattalionCost_c >= 0 && Upkeep_c_per_battalion >= 0, "rules.economy", "costs must be >= 0");
             Rules.Require(BattalionCap >= 1 && BattalionCap <= 1000000, "rules.economy", "battalionCap must be in 1..1000000");
-            Rules.Require(StartBattalions <= BattalionCap, "rules.economy", "startBattalions must be <= battalionCap");
         }
     }
 
-    public sealed class FortRules
+    /// <summary>Рельеф (спека 01b §9): множитель обороны по рельефу пикселя-цели, [равнина, холмы, горы].</summary>
+    public sealed class TerrainRules
     {
-        [JsonProperty("fortCosts_c")] public int[] FortCosts_c = { 40000, 60000, 90000, 135000, 202500 };
-        [JsonProperty("maxFortsPerNation")] public int MaxFortsPerNation = 8;
-        [JsonProperty("fortRadius")] public int FortRadius = 16;
-        [JsonProperty("fortMinSpacing")] public int FortMinSpacing = 16;
-        [JsonProperty("fortMult_bp")] public int FortMult_bp = 30000;
+        [JsonProperty("terrainDefense_bp")] public int[] TerrainDefense_bp = { 10000, 12500, 15000 };
 
         internal void Validate()
         {
-            Rules.Require(FortCosts_c != null && FortCosts_c.Length >= 1, "rules.forts", "fortCosts_c must have at least one value");
-            foreach (var c in FortCosts_c) Rules.Require(c >= 0, "rules.forts", "fortCosts_c must be >= 0");
-            Rules.Require(MaxFortsPerNation >= 0 && MaxFortsPerNation <= 255, "rules.forts", "maxFortsPerNation must be in 0..255");
-            Rules.Require(FortRadius >= 0 && FortRadius <= 255, "rules.forts", "fortRadius must be in 0..255");
-            Rules.Require(FortMinSpacing >= 0, "rules.forts", "fortMinSpacing must be >= 0");
-            Rules.Require(FortMult_bp >= 1, "rules.forts", "fortMult_bp must be >= 1");
+            Rules.Require(TerrainDefense_bp != null && TerrainDefense_bp.Length == 3, "rules.terrain", "terrainDefense_bp must have 3 values");
+            foreach (var m in TerrainDefense_bp) Rules.Require(m >= 1, "rules.terrain", "terrainDefense_bp must be >= 1");
         }
     }
 
-    public sealed class StrikeRules
+    /// <summary>Тип батальона (спека 01b §4.2). Индекс в массиве rules.units = тип.</summary>
+    public sealed class UnitRules
     {
-        [JsonProperty("strikeMult_bp")] public int StrikeMult_bp = 30000;
-        [JsonProperty("strikeDurationTicks")] public int StrikeDurationTicks = 200;
+        [JsonProperty("id")] public string Id = "";
+        [JsonProperty("cost_c")] public int Cost_c;
+        /// <summary>Содержание в сотых за секунду.</summary>
+        [JsonProperty("upkeep_c")] public int Upkeep_c;
+        [JsonProperty("attack")] public int Attack;
+        [JsonProperty("defense")] public int Defense;
+        [JsonProperty("attackTerrain_bp")] public int[] AttackTerrain_bp = { 10000, 10000, 10000 };
+        [JsonProperty("defenseTerrain_bp")] public int[] DefenseTerrain_bp = { 10000, 10000, 10000 };
+
+        public static UnitRules[] CreateDefault() => new[]
+        {
+            new UnitRules
+            {
+                Id = "infantry", Cost_c = 15000, Upkeep_c = 10, Attack = 10, Defense = 14,
+                AttackTerrain_bp = new[] { 10000, 10000, 9000 }, DefenseTerrain_bp = new[] { 10000, 10000, 10000 },
+            },
+            new UnitRules
+            {
+                Id = "armor", Cost_c = 40000, Upkeep_c = 30, Attack = 26, Defense = 14,
+                AttackTerrain_bp = new[] { 13000, 8000, 4000 }, DefenseTerrain_bp = new[] { 10000, 8000, 5000 },
+            },
+        };
+
+        internal void Validate(int index)
+        {
+            string f = "rules.units[" + index + "]";
+            Rules.Require(!string.IsNullOrEmpty(Id), f, "id is required");
+            Rules.Require(Cost_c >= 0 && Upkeep_c >= 0, f, "costs must be >= 0");
+            Rules.Require(Attack >= 0 && Attack <= 10000 && Defense >= 0 && Defense <= 10000, f, "attack and defense must be in 0..10000");
+            Rules.Require(AttackTerrain_bp != null && AttackTerrain_bp.Length == 3, f, "attackTerrain_bp must have 3 values");
+            Rules.Require(DefenseTerrain_bp != null && DefenseTerrain_bp.Length == 3, f, "defenseTerrain_bp must have 3 values");
+            for (int i = 0; i < 3; i++)
+                Rules.Require(AttackTerrain_bp[i] >= 0 && DefenseTerrain_bp[i] >= 0, f, "terrain multipliers must be >= 0");
+        }
+    }
+
+    /// <summary>Соединения (спека 01b §9).</summary>
+    public sealed class FormationRules
+    {
+        [JsonProperty("hqCost_c")] public int HqCost_c = 30000;
+        [JsonProperty("hqUpkeep_c")] public int HqUpkeep_c = 20;
+        [JsonProperty("maxBattalions")] public int MaxBattalions = 12;
+        [JsonProperty("maxFormationsPerNation")] public int MaxFormationsPerNation = 16;
+        [JsonProperty("transferTicks")] public int TransferTicks = 300;
+        [JsonProperty("attackingDefense_bp")] public int AttackingDefense_bp = 7000;
+        [JsonProperty("attackLoss_bp")] public int AttackLoss_bp = 50;
+        [JsonProperty("defendLoss_bp")] public int DefendLoss_bp = 20;
+        [JsonProperty("lossRatioMin_bp")] public int LossRatioMin_bp = 5000;
+        [JsonProperty("lossRatioMax_bp")] public int LossRatioMax_bp = 20000;
+        [JsonProperty("reinforceFront_bp")] public int ReinforceFront_bp = 30;
+        [JsonProperty("reinforceRear_bp")] public int ReinforceRear_bp = 150;
+        [JsonProperty("reinforceCostMult_bp")] public int ReinforceCostMult_bp = 2000;
+        [JsonProperty("startInfantry")] public int StartInfantry = 3;
 
         internal void Validate()
         {
-            Rules.Require(StrikeMult_bp >= 1, "rules.strikes", "strikeMult_bp must be >= 1");
-            Rules.Require(StrikeDurationTicks >= 1, "rules.strikes", "strikeDurationTicks must be >= 1");
+            const string f = "rules.formations";
+            Rules.Require(HqCost_c >= 0 && HqUpkeep_c >= 0, f, "hq costs must be >= 0");
+            Rules.Require(MaxBattalions >= 1 && MaxBattalions <= 64, f, "maxBattalions must be in 1..64");
+            Rules.Require(MaxFormationsPerNation >= 1 && MaxFormationsPerNation <= 255, f, "maxFormationsPerNation must be in 1..255");
+            Rules.Require(TransferTicks >= 0, f, "transferTicks must be >= 0");
+            Rules.Require(AttackingDefense_bp >= 0, f, "attackingDefense_bp must be >= 0");
+            Rules.Require(AttackLoss_bp >= 0 && DefendLoss_bp >= 0, f, "losses must be >= 0");
+            Rules.Require(LossRatioMin_bp >= 0 && LossRatioMax_bp >= LossRatioMin_bp, f, "lossRatioMin_bp <= lossRatioMax_bp");
+            Rules.Require(ReinforceFront_bp >= 0 && ReinforceRear_bp >= 0 && ReinforceFront_bp <= 10000 && ReinforceRear_bp <= 10000,
+                f, "reinforce rates must be in 0..10000");
+            Rules.Require(ReinforceCostMult_bp >= 0, f, "reinforceCostMult_bp must be >= 0");
+            Rules.Require(StartInfantry >= 0, f, "startInfantry must be >= 0");
+            // Потери за секунду не больше численности одного батальона: Strength_bp — short.
+            Rules.Require((long)AttackLoss_bp * LossRatioMax_bp / 10000 + (long)DefendLoss_bp * LossRatioMax_bp / 10000 <= 10000,
+                f, "losses per second must be <= 10000 bp");
         }
     }
 
@@ -317,7 +369,8 @@ namespace BattlePix.Core
 
     public sealed class AiFile
     {
-        public const int SupportedFormat = 1;
+        /// <summary>2 — профили соединений (спека 01b §5.8).</summary>
+        public const int SupportedFormat = 2;
 
         [JsonProperty("format")] public int Format = SupportedFormat;
         [JsonProperty("default")] public string Default = "base";
@@ -329,8 +382,8 @@ namespace BattlePix.Core
         {
             var f = new AiFile();
             f.Profiles["base"] = new AiProfile();
-            f.Profiles["no_forts"] = new AiProfile { FortLossThresholdPx = 1000000 };
-            f.Profiles["no_strikes"] = new AiProfile { StrikeSurplusBattalions = 1000000 };
+            f.Profiles["spread"] = new AiProfile { Spread = true };
+            f.Profiles["no_armor"] = new AiProfile { ArmorPlainShare_bp = 1000000 };
             return f;
         }
 
@@ -354,19 +407,21 @@ namespace BattlePix.Core
         }
     }
 
+    /// <summary>Профиль ИИ (спека 01b §5.8). Полный, без наследования.</summary>
     public sealed class AiProfile
     {
         [JsonProperty("thinkIntervalTicks")] public int ThinkIntervalTicks = 10;
-        [JsonProperty("fortLossThresholdPx")] public int FortLossThresholdPx = 6;
-        [JsonProperty("fortDepthPx")] public int FortDepthPx = 6;
-        [JsonProperty("targetDensity_milli")] public int TargetDensity_milli = 4000;
-        [JsonProperty("minBattalions")] public int MinBattalions = 3;
+        /// <summary>Абляция «ровный слой»: правила 2–4 заменены на «из тыла — на самый слабый фронт, наступать».</summary>
+        [JsonProperty("spread")] public bool Spread;
+        [JsonProperty("retreatStrength_bp")] public int RetreatStrength_bp = 4000;
+        [JsonProperty("rearStrength_bp")] public int RearStrength_bp = 2500;
+        [JsonProperty("deployStrength_bp")] public int DeployStrength_bp = 7000;
+        [JsonProperty("attackStrength_bp")] public int AttackStrength_bp = 6000;
+        [JsonProperty("attackMinRatio_bp")] public int AttackMinRatio_bp = 11000;
+        [JsonProperty("threatRatio_bp")] public int ThreatRatio_bp = 12000;
+        [JsonProperty("armorPlainShare_bp")] public int ArmorPlainShare_bp = 5500;
+        [JsonProperty("armorMaxShare_bp")] public int ArmorMaxShare_bp = 5000;
         [JsonProperty("recruitReserve_c")] public int RecruitReserve_c = 0;
-        /// <summary>Бить только из излишка: батальонов ≥ цель плотности + столько.</summary>
-        [JsonProperty("strikeSurplusBattalions")] public int StrikeSurplusBattalions = 2;
-        [JsonProperty("strikeMinScore_bp")] public int StrikeMinScore_bp = 13000;
-        /// <summary>Не чаще одного удара за столько тиков.</summary>
-        [JsonProperty("strikeCooldownTicks")] public int StrikeCooldownTicks = 600;
         [JsonProperty("leaderShare_bp")] public int LeaderShare_bp = 2500;
         [JsonProperty("leaderBonus_bp")] public int LeaderBonus_bp = 4000;
         [JsonProperty("noise_bp")] public int Noise_bp = 800;
@@ -375,11 +430,11 @@ namespace BattlePix.Core
         {
             string f = "ai.profiles." + name;
             Rules.Require(ThinkIntervalTicks >= 1, f, "thinkIntervalTicks must be >= 1");
-            Rules.Require(FortLossThresholdPx >= 0 && FortDepthPx >= 0, f, "fort values must be >= 0");
-            Rules.Require(TargetDensity_milli >= 0 && MinBattalions >= 0 && RecruitReserve_c >= 0, f, "recruit values must be >= 0");
-            Rules.Require(StrikeSurplusBattalions >= 0, f, "strikeSurplusBattalions must be >= 0");
-            Rules.Require(StrikeCooldownTicks >= 0, f, "strikeCooldownTicks must be >= 0");
-            Rules.Require(StrikeMinScore_bp >= 0 && LeaderShare_bp >= 0 && LeaderBonus_bp >= 0, f, "strike values must be >= 0");
+            Rules.Require(RetreatStrength_bp >= 0 && RearStrength_bp >= 0 && DeployStrength_bp >= 0 && AttackStrength_bp >= 0,
+                f, "strength thresholds must be >= 0");
+            Rules.Require(AttackMinRatio_bp >= 0 && ThreatRatio_bp >= 0, f, "ratios must be >= 0");
+            Rules.Require(ArmorPlainShare_bp >= 0 && ArmorMaxShare_bp >= 0 && RecruitReserve_c >= 0, f, "recruit values must be >= 0");
+            Rules.Require(LeaderShare_bp >= 0 && LeaderBonus_bp >= 0, f, "leader values must be >= 0");
             Rules.Require(Noise_bp >= 0 && Noise_bp < int.MaxValue, f, "noise_bp must be >= 0");
         }
     }

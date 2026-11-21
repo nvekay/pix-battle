@@ -1,25 +1,25 @@
 {
-  "format": 1,
+  "format": 2,
   "default": "base",
   "assign": {},
   "profiles": {
     "base": {
-      "thinkIntervalTicks": 10, "fortLossThresholdPx": 6, "fortDepthPx": 6,
-      "targetDensity_milli": 4000, "minBattalions": 3, "recruitReserve_c": 0,
-      "strikeSurplusBattalions": 2, "strikeMinScore_bp": 13000, "strikeCooldownTicks": 600,
-      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
+      "thinkIntervalTicks": 10, "spread": false,
+      "retreatStrength_bp": 4000, "rearStrength_bp": 2500, "deployStrength_bp": 7000, "attackStrength_bp": 6000,
+      "attackMinRatio_bp": 11000, "threatRatio_bp": 12000, "armorPlainShare_bp": 5500, "armorMaxShare_bp": 5000,
+      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
     },
-    "no_forts": {
-      "thinkIntervalTicks": 10, "fortLossThresholdPx": 1000000, "fortDepthPx": 6,
-      "targetDensity_milli": 4000, "minBattalions": 3, "recruitReserve_c": 0,
-      "strikeSurplusBattalions": 2, "strikeMinScore_bp": 13000, "strikeCooldownTicks": 600,
-      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
+    "spread": {
+      "thinkIntervalTicks": 10, "spread": true,
+      "retreatStrength_bp": 4000, "rearStrength_bp": 2500, "deployStrength_bp": 7000, "attackStrength_bp": 6000,
+      "attackMinRatio_bp": 11000, "threatRatio_bp": 12000, "armorPlainShare_bp": 5500, "armorMaxShare_bp": 5000,
+      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
     },
-    "no_strikes": {
-      "thinkIntervalTicks": 10, "fortLossThresholdPx": 6, "fortDepthPx": 6,
-      "targetDensity_milli": 4000, "minBattalions": 3, "recruitReserve_c": 0,
-      "strikeSurplusBattalions": 1000000, "strikeMinScore_bp": 13000, "strikeCooldownTicks": 600,
-      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
+    "no_armor": {
+      "thinkIntervalTicks": 10, "spread": false,
+      "retreatStrength_bp": 4000, "rearStrength_bp": 2500, "deployStrength_bp": 7000, "attackStrength_bp": 6000,
+      "attackMinRatio_bp": 11000, "threatRatio_bp": 12000, "armorPlainShare_bp": 1000000, "armorMaxShare_bp": 5000,
+      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
     }
   }
 }

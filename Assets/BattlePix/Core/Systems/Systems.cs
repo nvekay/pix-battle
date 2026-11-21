@@ -61,14 +61,17 @@ namespace BattlePix.Core
             return new SystemPipeline(list.ToArray());
         }
 
-        /// <summary>Пайплайн партии с правилами. Порядок — спека 5.2.</summary>
+        /// <summary>Пайплайн партии с правилами. Порядок — спека 01b §5.6.</summary>
         public static SystemPipeline CreateWithRules(SimConfig cfg, Rules rules)
         {
+            var formations = new FormationSystem();
             var list = new List<ISimSystem>
             {
+                new FormationPowStep(formations),
                 new FrontSystem(),
+                new FormationCloseStep(),
                 new EconomySystem(),
-                new StrikeSystem(),
+                new FormationLossStep(formations),
                 new AiSystem(),
                 new EndSystem(),
             };
