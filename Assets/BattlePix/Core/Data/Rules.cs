@@ -218,14 +218,14 @@ namespace BattlePix.Core
 
     public sealed class FrontRules
     {
-        [JsonProperty("expandChance_bp")] public int ExpandChance_bp = 120;
+        [JsonProperty("expandChance_bp")] public int ExpandChance_bp = 70;
         [JsonProperty("warChance_bp")] public int WarChance_bp = 180;
         [JsonProperty("stallRatio_bp")] public int StallRatio_bp = 8000;
         [JsonProperty("maxChance_bp")] public int MaxChance_bp = 800;
-        [JsonProperty("garrisonPerEdge")] public int GarrisonPerEdge = 10;
-        [JsonProperty("capitalRadius")] public int CapitalRadius = 20;
-        [JsonProperty("capitalMult_bp")] public int CapitalMult_bp = 20000;
-        [JsonProperty("defenseMultCap_bp")] public int DefenseMultCap_bp = 40000;
+        [JsonProperty("garrisonPerEdge")] public int GarrisonPerEdge = 40;
+        [JsonProperty("capitalRadius")] public int CapitalRadius = 28;
+        [JsonProperty("capitalMult_bp")] public int CapitalMult_bp = 30000;
+        [JsonProperty("defenseMultCap_bp")] public int DefenseMultCap_bp = 60000;
         /// <summary>
         /// Множитель шанса войны по числу соседей атакующего у пикселя (1, 2, 3, 4), bp. Даёт границе «поверхностное
         /// натяжение»: анклав в окружении съедается, выступ в один пиксель почти не растёт. [10000 ×4] — как без множителя.
@@ -325,7 +325,7 @@ namespace BattlePix.Core
             var f = new AiFile();
             f.Profiles["base"] = new AiProfile();
             f.Profiles["no_forts"] = new AiProfile { FortLossThresholdPx = 1000000 };
-            f.Profiles["no_strikes"] = new AiProfile { StrikeMinBattalions = 1000000 };
+            f.Profiles["no_strikes"] = new AiProfile { StrikeSurplusBattalions = 1000000 };
             return f;
         }
 
@@ -357,11 +357,14 @@ namespace BattlePix.Core
         [JsonProperty("targetDensity_milli")] public int TargetDensity_milli = 4000;
         [JsonProperty("minBattalions")] public int MinBattalions = 3;
         [JsonProperty("recruitReserve_c")] public int RecruitReserve_c = 0;
-        [JsonProperty("strikeMinBattalions")] public int StrikeMinBattalions = 5;
-        [JsonProperty("strikeMinScore_bp")] public int StrikeMinScore_bp = 11000;
+        /// <summary>Бить только из излишка: батальонов ≥ цель плотности + столько.</summary>
+        [JsonProperty("strikeSurplusBattalions")] public int StrikeSurplusBattalions = 2;
+        [JsonProperty("strikeMinScore_bp")] public int StrikeMinScore_bp = 13000;
+        /// <summary>Не чаще одного удара за столько тиков.</summary>
+        [JsonProperty("strikeCooldownTicks")] public int StrikeCooldownTicks = 600;
         [JsonProperty("leaderShare_bp")] public int LeaderShare_bp = 2500;
         [JsonProperty("leaderBonus_bp")] public int LeaderBonus_bp = 4000;
-        [JsonProperty("noise_bp")] public int Noise_bp = 1500;
+        [JsonProperty("noise_bp")] public int Noise_bp = 800;
 
         internal void Validate(string name)
         {
@@ -369,7 +372,8 @@ namespace BattlePix.Core
             Rules.Require(ThinkIntervalTicks >= 1, f, "thinkIntervalTicks must be >= 1");
             Rules.Require(FortLossThresholdPx >= 0 && FortDepthPx >= 0, f, "fort values must be >= 0");
             Rules.Require(TargetDensity_milli >= 0 && MinBattalions >= 0 && RecruitReserve_c >= 0, f, "recruit values must be >= 0");
-            Rules.Require(StrikeMinBattalions >= 1, f, "strikeMinBattalions must be >= 1");
+            Rules.Require(StrikeSurplusBattalions >= 0, f, "strikeSurplusBattalions must be >= 0");
+            Rules.Require(StrikeCooldownTicks >= 0, f, "strikeCooldownTicks must be >= 0");
             Rules.Require(StrikeMinScore_bp >= 0 && LeaderShare_bp >= 0 && LeaderBonus_bp >= 0, f, "strike values must be >= 0");
             Rules.Require(Noise_bp >= 0 && Noise_bp < int.MaxValue, f, "noise_bp must be >= 0");
         }

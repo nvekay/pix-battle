@@ -23,7 +23,7 @@ namespace BattlePix.Core.Tests
             var r = Rules().Clone();
             r.Ai.Profiles["idle"] = new AiProfile
             {
-                FortLossThresholdPx = 1000000, TargetDensity_milli = 0, MinBattalions = 0, StrikeMinBattalions = 1000000,
+                FortLossThresholdPx = 1000000, TargetDensity_milli = 0, MinBattalions = 0, StrikeSurplusBattalions = 1000000,
             };
             for (int id = 1; id <= r.NationCount; id++) r.AssignProfile(id, "idle");
             return r;

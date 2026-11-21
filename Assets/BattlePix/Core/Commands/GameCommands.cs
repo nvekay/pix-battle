@@ -100,6 +100,7 @@ namespace BattlePix.Core
                     int from = strike[idx] > w.Tick ? strike[idx] : w.Tick;
                     strike[idx] = from + rules.Strikes.StrikeDurationTicks;
                     n.Strikes += 1;
+                    n.LastStrikeTick = w.Tick;
                     break;
                 }
             }

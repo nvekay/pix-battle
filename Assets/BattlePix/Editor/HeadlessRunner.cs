@@ -223,6 +223,7 @@ namespace BattlePix.Editor
                 r.UnfairStart = mg.UnfairStart;
                 r.LeaderShare_bp = new int[LeaderMinutes.Length];
                 int tps = config.TicksPerSecond;
+                int[] neighbours5 = null;
                 while (!w.IsOver)
                 {
                     if (w.Tick == crashAtTick)
@@ -234,7 +235,11 @@ namespace BattlePix.Editor
                     if (!sim.LastStepWroteCheckpoint) perTick.Add(sw.Elapsed.TotalMilliseconds);
 
                     if (r.FirstContactTick < 0 && AnyContact(w)) r.FirstContactTick = w.Tick;
-                    if (w.Tick == 300 * tps) r.StartFairness_bp = PixelRatio(w);
+                    if (w.Tick == 300 * tps)
+                    {
+                        r.StartFairness_bp = PixelRatio(w);
+                        neighbours5 = Neighbours(w);
+                    }
                     for (int m = 0; m < LeaderMinutes.Length; m++)
                         if (w.Tick == LeaderMinutes[m] * 60 * tps) r.LeaderShare_bp[m] = LeaderShare(w);
                 }
@@ -242,6 +247,7 @@ namespace BattlePix.Editor
                 for (int m = 0; m < LeaderMinutes.Length; m++)
                     if (w.Tick < LeaderMinutes[m] * 60 * tps) r.LeaderShare_bp[m] = LeaderShare(w);
                 if (r.StartFairness_bp < 0) r.StartFairness_bp = PixelRatio(w);
+                if (neighbours5 == null) neighbours5 = Neighbours(w);
 
                 r.Ticks = w.Tick;
                 r.EndTick = w.Tick;
@@ -264,6 +270,7 @@ namespace BattlePix.Editor
                         Recruits = n.Recruits,
                         FortsBuilt = n.FortsBuilt,
                         Strikes = n.Strikes,
+                        NeighboursAt5 = neighbours5[i],
                     };
                 }
             }
@@ -286,6 +293,16 @@ namespace BattlePix.Editor
                 perTick.Sort();
                 r.MsPerTickP99 = perTick[Math.Min(perTick.Count - 1, (int)Math.Ceiling(perTick.Count * 0.99) - 1)];
             }
+            return r;
+        }
+
+        /// <summary>Сколько живых соседей с общей границей у каждой нации (индекс id − 1).</summary>
+        static int[] Neighbours(World w)
+        {
+            var r = new int[w.NationCount];
+            for (int a = 1; a <= w.NationCount; a++)
+            for (int d = 1; d <= w.NationCount; d++)
+                if (a != d && w.Nations[d - 1].Alive != 0 && w.FrontLength(a, d) > 0) r[a - 1]++;
             return r;
         }
 
@@ -487,6 +504,8 @@ namespace BattlePix.Editor
         public int Recruits;
         public int FortsBuilt;
         public int Strikes;
+        /// <summary>Живых соседей с общей границей на 5-й минуте.</summary>
+        public int NeighboursAt5;
     }
 
     /// <summary>Итог одной партии.</summary>
@@ -696,6 +715,13 @@ namespace BattlePix.Editor
                 sb.AppendLine(string.Format(inv, "- Генерация: mapRetryFail {0}, unfairStart {1}", done.Count(r => r.MapRetryFail), done.Count(r => r.UnfairStart)));
                 sb.AppendLine("- Победы по id: " + string.Join(", ", Enumerable.Range(1, done[0].Nations.Length).Select(id => $"{id}: {Gate1.WinsOf(done, id)}")));
                 var all = done.SelectMany(r => r.Nations).ToList();
+                int earlyDeath = done.Count(r => r.Nations.Any(x => x.DiedAtTick >= 0 && x.DiedAtTick < 8 * 600));
+                sb.AppendLine(string.Format(inv, "- Партий со смертью столицы до 8-й минуты: {0} из {1}", earlyDeath, done.Count));
+                sb.AppendLine("- По числу соседей на 5-й минуте (нации всех партий): " + string.Join("; ",
+                    done.SelectMany(r => r.Nations.Select(x => (x, r))).GroupBy(t => Math.Min(t.x.NeighboursAt5, 5)).OrderBy(g => g.Key)
+                        .Select(g => string.Format(inv, "{0}{1}: наций {2}, побед {3} ({4:0}%), пали до 8-й мин {5} ({6:0}%)",
+                            g.Key, g.Key == 5 ? "+" : "", g.Count(), g.Count(t => t.r.Winner == t.x.Id), 100.0 * g.Count(t => t.r.Winner == t.x.Id) / g.Count(),
+                            g.Count(t => t.x.DiedAtTick >= 0 && t.x.DiedAtTick < 4800), 100.0 * g.Count(t => t.x.DiedAtTick >= 0 && t.x.DiedAtTick < 4800) / g.Count()))));
                 sb.AppendLine(string.Format(inv, "- На нацию за партию в среднем: батальонов {0:0.0}, крепостей {1:0.0}, ударов {2:0.0}; пали до конца партии {3:0}%",
                     all.Average(x => x.Recruits), all.Average(x => x.FortsBuilt), all.Average(x => x.Strikes), 100.0 * all.Count(x => x.DiedAtTick >= 0) / all.Count));
                 sb.AppendLine();

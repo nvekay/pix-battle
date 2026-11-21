@@ -42,6 +42,8 @@ namespace BattlePix.Core
         public int Recruits;
         public int FortsBuilt;
         public int Strikes;
+        /// <summary>Тик последнего удара нации; −1 — ударов не было.</summary>
+        public int LastStrikeTick;
     }
 
     public struct Fort
@@ -133,7 +135,7 @@ namespace BattlePix.Core
             _terrain = new NativeArray<byte>(n, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _nations = new NativeArray<NationState>(nationCount, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             for (int i = 0; i < nationCount; i++)
-                _nations[i] = new NationState { Id = (byte)(i + 1), Alive = 1, Capital = -1, DiedAtTick = -1 };
+                _nations[i] = new NationState { Id = (byte)(i + 1), Alive = 1, Capital = -1, DiedAtTick = -1, LastStrikeTick = -1 };
 
             MaxFortsPerNation = rules != null ? rules.Forts.MaxFortsPerNation : 0;
             int nn = rules != null ? nationCount : 0;

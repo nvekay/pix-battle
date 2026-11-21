@@ -30,7 +30,8 @@ namespace BattlePix.Core.Tests
     /// <summary>Acceptance 5: таблица из раздела 6 спеки.</summary>
     public class FrontExampleTests
     {
-        static readonly FrontRules Fr = Rules.Default(8).Front;
+        // Пример раздела 6 посчитан на стартовых числах спеки (гарнизон 10, столица ×2, кап ×4), а не на текущих данных.
+        static readonly FrontRules Fr = new FrontRules { GarrisonPerEdge = 10, CapitalMult_bp = 20000, DefenseMultCap_bp = 40000 };
 
         static void Row(int att, int def, int expectRatio, int expectChance)
         {
@@ -43,6 +44,7 @@ namespace BattlePix.Core.Tests
         public void Section6_Table()
         {
             var r = Rules.Default(8);
+            r.Front.GarrisonPerEdge = Fr.GarrisonPerEdge;
             Assert.AreEqual(4800, FrontMath.ArmyOnFront(12, 120, 300));
             Assert.AreEqual(6000, FrontMath.ArmyOnFront(8, 120, 160));
             int pow12 = FrontMath.Pow(12, 120, 300, Fr.GarrisonPerEdge);
@@ -82,6 +84,7 @@ namespace BattlePix.Core.Tests
         {
             var rules = Rules.Default(2);
             rules.Front.SurroundMult_bp = new[] { 10000, 10000, 10000, 10000 }; // формула 5.4 как в спеке
+            rules.Front.GarrisonPerEdge = 10;                                   // и стартовый гарнизон спеки
             var world = new World(4, 2, 2, 1, rules);
             var terrain = world.TerrainRW;
             var owner = world.OwnerRW;
@@ -135,6 +138,7 @@ namespace BattlePix.Core.Tests
         {
             var rules = Rules.Default(2);
             rules.Front.SurroundMult_bp = surround;
+            rules.Front.GarrisonPerEdge = 10;
             var world = new World(3, 3, 2, 1, rules);
             var front = new FrontSystem { SingleThreaded = true };
             try

@@ -16,14 +16,14 @@
     "capitalRetries": 16
   },
   "front": {
-    "expandChance_bp": 120,
+    "expandChance_bp": 70,
     "warChance_bp": 180,
     "stallRatio_bp": 8000,
     "maxChance_bp": 800,
-    "garrisonPerEdge": 10,
-    "capitalRadius": 20,
-    "capitalMult_bp": 20000,
-    "defenseMultCap_bp": 40000,
+    "garrisonPerEdge": 40,
+    "capitalRadius": 28,
+    "capitalMult_bp": 30000,
+    "defenseMultCap_bp": 60000,
     "surroundMult_bp": [5000, 10000, 20000, 40000]
   },
   "economy": {

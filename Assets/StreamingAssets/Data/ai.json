@@ -6,20 +6,20 @@
     "base": {
       "thinkIntervalTicks": 10, "fortLossThresholdPx": 6, "fortDepthPx": 6,
       "targetDensity_milli": 4000, "minBattalions": 3, "recruitReserve_c": 0,
-      "strikeMinBattalions": 5, "strikeMinScore_bp": 11000,
-      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 1500
+      "strikeSurplusBattalions": 2, "strikeMinScore_bp": 13000, "strikeCooldownTicks": 600,
+      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
     },
     "no_forts": {
       "thinkIntervalTicks": 10, "fortLossThresholdPx": 1000000, "fortDepthPx": 6,
       "targetDensity_milli": 4000, "minBattalions": 3, "recruitReserve_c": 0,
-      "strikeMinBattalions": 5, "strikeMinScore_bp": 11000,
-      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 1500
+      "strikeSurplusBattalions": 2, "strikeMinScore_bp": 13000, "strikeCooldownTicks": 600,
+      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
     },
     "no_strikes": {
       "thinkIntervalTicks": 10, "fortLossThresholdPx": 6, "fortDepthPx": 6,
       "targetDensity_milli": 4000, "minBattalions": 3, "recruitReserve_c": 0,
-      "strikeMinBattalions": 1000000, "strikeMinScore_bp": 11000,
-      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 1500
+      "strikeSurplusBattalions": 1000000, "strikeMinScore_bp": 13000, "strikeCooldownTicks": 600,
+      "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
     }
   }
 }

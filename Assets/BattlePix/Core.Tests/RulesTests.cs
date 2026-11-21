@@ -33,7 +33,7 @@ namespace BattlePix.Core.Tests
             string nations = TestData.Text("nations.json"), rules = TestData.Text("rules.json"), ai = TestData.Text("ai.json");
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"warChance_bp\"", "\"warChanceTypo_bp\""), ai),
                 "unknown field");
-            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"garrisonPerEdge\": 10", "\"garrisonPerEdge\": 0"), ai));
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"garrisonPerEdge\": 40", "\"garrisonPerEdge\": 0"), ai));
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules, ai.Replace("\"default\": \"base\"", "\"default\": \"nope\"")));
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations.Replace("\"id\": 5", "\"id\": 15"), rules, ai), "ids not contiguous");
             Assert.Throws<System.FormatException>(() => Rules.FromJson("[{\"id\":0,\"name\":\"\",\"color\":\"\"},{\"id\":1,\"name\":\"\",\"color\":\"\"}]", rules, ai),
@@ -48,7 +48,7 @@ namespace BattlePix.Core.Tests
             Assert.AreEqual("no_forts", r.ProfileName(3));
             Assert.AreEqual(1000000, r.Profile(3).FortLossThresholdPx);
             r.AssignProfile(3, "no_strikes");
-            Assert.AreEqual(1000000, r.Profile(3).StrikeMinBattalions);
+            Assert.AreEqual(1000000, r.Profile(3).StrikeSurplusBattalions);
             Assert.Throws<System.FormatException>(() => r.AssignProfile(1, "missing"));
         }
 

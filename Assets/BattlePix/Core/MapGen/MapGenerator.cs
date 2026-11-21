@@ -90,6 +90,16 @@ namespace BattlePix.Core
                 best.Stats = new MapGenStats { Fairness_bp = Fairness(w, h, best.Terrain, best.Capitals, owner, queue, sizes) };
             }
 
+            // 6½. Какая нация какую столицу получает — перестановка из потока MapGen (Фишер — Йетс).
+            // Иначе id совпадает с порядком расстановки: нация 1 — случайная, часто внутренняя, последние — втиснутые между.
+            for (int k = best.Capitals.Length - 1; k > 0; k--)
+            {
+                int j = rng.NextInt(k + 1);
+                int t = best.Capitals[k];
+                best.Capitals[k] = best.Capitals[j];
+                best.Capitals[j] = t;
+            }
+
             var stats = best.Stats;
             stats.MapAttempts = mapAttempts;
             stats.CapitalAttempts = capAttemptsTotal;
