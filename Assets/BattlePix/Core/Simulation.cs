@@ -171,6 +171,9 @@ namespace BattlePix.Core
                 case CommandType.RecruitUnit:
                 case CommandType.AssignFormation:
                 case CommandType.SetOrder:
+                case CommandType.RecruitDivision:
+                case CommandType.AssignDivision:
+                case CommandType.SetFrontOrder:
                     return GameCommands.Validate(World, c);
                 default:
                     return RejectReason.UnknownType;
@@ -186,9 +189,9 @@ namespace BattlePix.Core
                 case CommandType.DebugSetOwner:
                     World.SetOwner(c.A, (byte)c.B);
                     break;
-                case CommandType.RecruitUnit:
-                case CommandType.AssignFormation:
-                case CommandType.SetOrder:
+                case CommandType.RecruitDivision:
+                case CommandType.AssignDivision:
+                case CommandType.SetFrontOrder:
                     GameCommands.Apply(World, c);
                     break;
             }

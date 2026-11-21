@@ -108,7 +108,7 @@ namespace BattlePix.Game
             float worst = 0f, start = Time.unscaledTime;
             var rng = new Pcg32(_sim.Seed, 0xBE7C);
             int lastCmdTick = -1;
-            var sent = new int[8];
+            var sent = new int[16];
             while (Time.unscaledTime - start < seconds && !_sim.World.IsOver)
             {
                 frames++;
@@ -130,7 +130,7 @@ namespace BattlePix.Game
             UnityEngine.Debug.Log(string.Format(CultureInfo.InvariantCulture,
                 "[BattlePix] bench: {0}x{1}, speed x{2}, {3:0.0} fps avg, worst frame {4:0.0} ms, tick {5}, commands recruit {6} assign {7} order {8}",
                 Screen.width, Screen.height, speed, frames / elapsed, worst * 1000f, _sim.World.Tick,
-                sent[(int)CommandType.RecruitUnit], sent[(int)CommandType.AssignFormation], sent[(int)CommandType.SetOrder]));
+                sent[(int)CommandType.RecruitDivision], sent[(int)CommandType.AssignDivision], sent[(int)CommandType.SetFrontOrder]));
 
             if (TryGetArg("-benchShot", out var shot))
             {
@@ -152,28 +152,27 @@ namespace BattlePix.Game
         }
 
         /// <summary>
-        /// Простой «человек» для бенча: только команды, которые сейчас проходят валидацию. Набирает пехоту и броню,
-        /// новые соединения, ставит их на фронты и переключает приказы — все три новых типа команд для реплея.
+        /// Простой «человек» для бенча: только команды, которые сейчас проходят валидацию. Набирает пехотные и танковые
+        /// дивизии, ставит их на фронты и в тыл, переключает приказы фронтам — все три новых типа команд для реплея.
         /// </summary>
         Command? BenchCommand(ref Pcg32 rng, int t)
         {
             var w = _sim.World;
             if (w.Nation(Human).Alive == 0) return null;
-            int maxF = w.MaxFormationsPerNation;
             var options = new List<Command>();
-            for (int k = -1; k < maxF; k++)
+            for (int type = 0; type < _rules.Divisions.Length; type++)
+                if (GameCommands.ValidateRecruit(w, Human, type) == RejectReason.None)
+                    options.Add(new Command { Nation = Human, Type = CommandType.RecruitDivision, A = type });
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
             {
-                if (k >= 0 && !GameCommands.OwnFormation(w, Human, k)) continue;
-                for (int type = 0; type < _rules.Units.Length; type++)
-                    if (GameCommands.ValidateRecruit(w, Human, k, type) == RejectReason.None)
-                        options.Add(new Command { Nation = Human, Type = CommandType.RecruitUnit, A = k, B = type });
-                if (k < 0) continue;
+                if (!GameCommands.OwnDivision(w, Human, k)) continue;
                 for (int d = 0; d <= w.NationCount; d++)
                     if (d != Human && GameCommands.ValidateAssign(w, Human, k, d) == RejectReason.None)
-                        options.Add(new Command { Nation = Human, Type = CommandType.AssignFormation, A = k, B = d });
-                var f = w.FormationAt(w.FormationSlot(Human, k));
-                options.Add(new Command { Nation = Human, Type = CommandType.SetOrder, A = k, B = 1 - f.Order });
+                        options.Add(new Command { Nation = Human, Type = CommandType.AssignDivision, A = k, B = d });
             }
+            for (int d = 1; d <= w.NationCount; d++)
+                if (d != Human && w.FrontLength(Human, d) > 0 && w.Nation((byte)d).Alive != 0)
+                    options.Add(new Command { Nation = Human, Type = CommandType.SetFrontOrder, A = d, B = 1 - w.FrontOrderOf(Human, d) });
             if (options.Count == 0 || t % 50 != 0) return null;
             return options[rng.NextInt(options.Count)];
         }
@@ -406,7 +405,7 @@ namespace BattlePix.Game
             if (o == Human)
             {
                 var me = w.Nation(Human);
-                return $"Наша земля · {terrain} · {me.Battalions} бат. в {me.Formations} соединениях";
+                return $"Наша земля · {terrain} · дивизий: {me.Divisions}";
             }
             return _names.Full(o) + " · " + terrain;
         }

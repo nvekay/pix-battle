@@ -16,7 +16,10 @@ namespace BattlePix.Core.Tests
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Economy), Newtonsoft.Json.JsonConvert.SerializeObject(r.Economy));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Terrain), Newtonsoft.Json.JsonConvert.SerializeObject(r.Terrain));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Units), Newtonsoft.Json.JsonConvert.SerializeObject(r.Units));
-            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Formations), Newtonsoft.Json.JsonConvert.SerializeObject(r.Formations));
+            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Divisions), Newtonsoft.Json.JsonConvert.SerializeObject(r.Divisions));
+            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Army), Newtonsoft.Json.JsonConvert.SerializeObject(r.Army));
+            Assert.AreEqual(45000, r.DivisionCost(DivisionTypes.Infantry));
+            Assert.AreEqual(95000, r.DivisionCost(DivisionTypes.Armor));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.End), Newtonsoft.Json.JsonConvert.SerializeObject(r.End));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Ai), Newtonsoft.Json.JsonConvert.SerializeObject(r.Ai));
             Assert.AreEqual("base", r.ProfileName(1));
@@ -39,8 +42,13 @@ namespace BattlePix.Core.Tests
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations.Replace("\"id\": 5", "\"id\": 15"), rules, ai), "ids not contiguous");
             Assert.Throws<System.FormatException>(() => Rules.FromJson("[{\"id\":0,\"name\":\"\",\"color\":\"\"},{\"id\":1,\"name\":\"\",\"color\":\"\"}]", rules, ai),
                 "one nation is not a match");
-            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"format\": 2", "\"format\": 1"), ai), "old rules format");
-            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"maxBattalions\": 12", "\"maxBattalions\": 0"), ai));
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"format\": 3", "\"format\": 2"), ai), "old rules format");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules, ai.Replace("\"format\": 3", "\"format\": 2")), "old ai format");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"maxDivisionsPerNation\": 32", "\"maxDivisionsPerNation\": 0"), ai));
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"composition\": [3, 0]", "\"composition\": [3]"), ai), "composition length");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"composition\": [3, 0]", "\"composition\": [0, 0]"), ai), "empty composition");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"startDivisions\": [1, 0]", "\"startDivisions\": [1]"), ai), "startDivisions per type");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"pixelsPerGold\": 2000", "\"pixelsPerGold\": 2000, \"battalionCap\": 60"), ai), "battalionCap is gone");
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"terrainDefense_bp\": [10000, 12500, 15000]", "\"terrainDefense_bp\": [10000]"), ai));
         }
 

@@ -1,5 +1,5 @@
 {
-  "format": 2,
+  "format": 3,
   "mapgen": {
     "octaves": 4,
     "baseCellPx": 64,
@@ -42,8 +42,7 @@
   "economy": {
     "startGold_c": 30000,
     "flatIncome_c": 200,
-    "pixelsPerGold": 2000,
-    "battalionCap": 60
+    "pixelsPerGold": 2000
   },
   "terrain": {
     "terrainDefense_bp": [10000, 12500, 15000]
@@ -58,11 +57,12 @@
       "attackTerrain_bp": [13000, 8000, 4000], "defenseTerrain_bp": [10000, 8000, 5000]
     }
   ],
-  "formations": {
-    "hqCost_c": 30000,
-    "hqUpkeep_c": 20,
-    "maxBattalions": 12,
-    "maxFormationsPerNation": 16,
+  "divisions": [
+    { "id": "infantry_div", "composition": [3, 0], "trainTicks": 300 },
+    { "id": "armor_div", "composition": [1, 2], "trainTicks": 300 }
+  ],
+  "army": {
+    "maxDivisionsPerNation": 32,
     "transferTicks": 300,
     "attackingDefense_bp": 7000,
     "attackLoss_bp": 50,
@@ -72,7 +72,15 @@
     "reinforceFront_bp": 30,
     "reinforceRear_bp": 150,
     "reinforceCostMult_bp": 2000,
-    "startInfantry": 3
+    "attackOrgLoss_bp": 150,
+    "defendOrgLoss_bp": 100,
+    "orgRecoverFront_bp": 100,
+    "orgRecoverRear_bp": 250,
+    "haltOrg_bp": 1500,
+    "resumeOrg_bp": 6000,
+    "orgDefenseMin_bp": 5000,
+    "desertLoss_bp": 2000,
+    "startDivisions": [1, 0]
   },
   "end": {
     "victoryShare_bp": 4000,

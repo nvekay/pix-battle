@@ -18,7 +18,9 @@ namespace BattlePix.Core
         public EconomyRules Economy { get; private set; }
         public TerrainRules Terrain { get; private set; }
         public UnitRules[] Units { get; private set; }
-        public FormationRules Formations { get; private set; }
+        /// <summary>Типы дивизий (спека 01c §3.1): индекс = тип.</summary>
+        public DivisionRules[] Divisions { get; internal set; }
+        public ArmyRules Army { get; private set; }
         public EndRules End { get; private set; }
         public AiFile Ai { get; private set; }
 
@@ -33,7 +35,8 @@ namespace BattlePix.Core
             Economy = file.Economy;
             Terrain = file.Terrain;
             Units = file.Units;
-            Formations = file.Formations;
+            Divisions = file.Divisions;
+            Army = file.Army;
             End = file.End;
             Ai = ai;
             _profileNameByNation = new string[nationCount];
@@ -45,7 +48,58 @@ namespace BattlePix.Core
                     name = assigned;
                 AssignProfile(id, name);
             }
+            RebuildDivisionTables();
         }
+
+        // ---------- таблицы дивизий: считаются один раз при загрузке правил (01c §4.1) ----------
+
+        int[] _divCost = new int[0];
+        int[] _divUpkeep = new int[0];
+        int[] _divAtk100 = new int[0];
+        int[] _divDef100 = new int[0];
+
+        /// <summary>
+        /// Цена, содержание и atk100/def100 по типу и рельефу из состава и rules.units. Тесты, которые меняют units
+        /// или divisions после загрузки, вызывают это сами.
+        /// </summary>
+        internal void RebuildDivisionTables()
+        {
+            int types = Divisions.Length, kinds = World.TerrainKinds;
+            _divCost = new int[types];
+            _divUpkeep = new int[types];
+            _divAtk100 = new int[types * kinds];
+            _divDef100 = new int[types * kinds];
+            for (int t = 0; t < types; t++)
+            {
+                var comp = Divisions[t].Composition;
+                long cost = 0, upkeep = 0;
+                for (int u = 0; u < Units.Length; u++)
+                {
+                    cost += (long)comp[u] * Units[u].Cost_c;
+                    upkeep += (long)comp[u] * Units[u].Upkeep_c;
+                    for (int tr = 0; tr < kinds; tr++)
+                    {
+                        // По батальонам, деление на каждом шаге.
+                        _divAtk100[t * kinds + tr] += comp[u] * (int)((long)Units[u].Attack * 100 * Units[u].AttackTerrain_bp[tr] / 10000);
+                        _divDef100[t * kinds + tr] += comp[u] * (int)((long)Units[u].Defense * 100 * Units[u].DefenseTerrain_bp[tr] / 10000);
+                    }
+                }
+                _divCost[t] = (int)cost;
+                _divUpkeep[t] = (int)upkeep;
+            }
+        }
+
+        /// <summary>Цена дивизии в сотых: Σ composition[u] × units[u].cost_c.</summary>
+        public int DivisionCost(int type) => _divCost[type];
+
+        /// <summary>Содержание дивизии в сотых за секунду: Σ composition[u] × units[u].upkeep_c.</summary>
+        public int DivisionUpkeep(int type) => _divUpkeep[type];
+
+        /// <summary>Атака дивизии типа на рельефе tr, очки ×100, при численности 100%.</summary>
+        public int DivisionAtk100(int type, int tr) => _divAtk100[type * World.TerrainKinds + tr];
+
+        /// <summary>Оборона дивизии типа на рельефе tr, очки ×100, при численности и организации 100%.</summary>
+        public int DivisionDef100(int type, int tr) => _divDef100[type * World.TerrainKinds + tr];
 
         static readonly JsonSerializerSettings Strict = new JsonSerializerSettings
         {
@@ -91,7 +145,7 @@ namespace BattlePix.Core
         /// <summary>Глубокая копия через JSON: тесты и абляции меняют копию, не общий объект.</summary>
         public Rules Clone()
         {
-            var file = new RulesFile { MapGen = MapGen, Front = Front, Economy = Economy, Terrain = Terrain, Units = Units, Formations = Formations, End = End };
+            var file = new RulesFile { MapGen = MapGen, Front = Front, Economy = Economy, Terrain = Terrain, Units = Units, Divisions = Divisions, Army = Army, End = End };
             var fileCopy = JsonConvert.DeserializeObject<RulesFile>(JsonConvert.SerializeObject(file), Strict);
             var aiCopy = JsonConvert.DeserializeObject<AiFile>(JsonConvert.SerializeObject(Ai), Strict);
             var r = new Rules(NationCount, fileCopy, aiCopy);
@@ -150,9 +204,10 @@ namespace BattlePix.Core
 
     public sealed class RulesFile
     {
-        /// <summary>2 — фронты и соединения (спека 01b): без forts/strikes, с terrain/units/formations.</summary>
-        public const int SupportedFormat = 2;
+        /// <summary>3 — дивизии (спека 01c): divisions и army вместо formations, без battalionCap. 2 — соединения 01b.</summary>
+        public const int SupportedFormat = 3;
         public const int MaxUnitTypes = 8;
+        public const int MaxDivisionTypes = 8;
 
         [JsonProperty("format")] public int Format = SupportedFormat;
         [JsonProperty("mapgen")] public MapGenRules MapGen = new MapGenRules();
@@ -160,13 +215,14 @@ namespace BattlePix.Core
         [JsonProperty("economy")] public EconomyRules Economy = new EconomyRules();
         [JsonProperty("terrain")] public TerrainRules Terrain = new TerrainRules();
         [JsonProperty("units")] public UnitRules[] Units = UnitRules.CreateDefault();
-        [JsonProperty("formations")] public FormationRules Formations = new FormationRules();
+        [JsonProperty("divisions")] public DivisionRules[] Divisions = DivisionRules.CreateDefault();
+        [JsonProperty("army")] public ArmyRules Army = new ArmyRules();
         [JsonProperty("end")] public EndRules End = new EndRules();
 
         public void Validate()
         {
             Rules.Require(Format == SupportedFormat, "rules", $"format {Format} is not supported, expected {SupportedFormat}");
-            Rules.Require(MapGen != null && Front != null && Economy != null && Terrain != null && Units != null && Formations != null && End != null,
+            Rules.Require(MapGen != null && Front != null && Economy != null && Terrain != null && Units != null && Divisions != null && Army != null && End != null,
                 "rules", "all sections are required");
             MapGen.Validate();
             Front.Validate();
@@ -178,10 +234,18 @@ namespace BattlePix.Core
                 Rules.Require(Units[i] != null, "rules.units", $"unit {i} is empty");
                 Units[i].Validate(i);
             }
-            Formations.Validate();
+            Rules.Require(Divisions.Length >= 1 && Divisions.Length <= MaxDivisionTypes, "rules.divisions", $"divisions must have 1..{MaxDivisionTypes} types");
+            for (int i = 0; i < Divisions.Length; i++)
+            {
+                Rules.Require(Divisions[i] != null, "rules.divisions", $"division {i} is empty");
+                Divisions[i].Validate(i, Units.Length);
+            }
+            Army.Validate();
             End.Validate();
-            Rules.Require(Formations.StartInfantry <= Formations.MaxBattalions && Formations.StartInfantry <= Economy.BattalionCap,
-                "rules.formations", "startInfantry must fit one formation and battalionCap");
+            Rules.Require(Army.StartDivisions.Length == Divisions.Length, "rules.army", "startDivisions must have one count per division type");
+            int start = 0;
+            foreach (var c in Army.StartDivisions) start += c;
+            Rules.Require(start <= Army.MaxDivisionsPerNation, "rules.army", "startDivisions must fit maxDivisionsPerNation");
         }
     }
 
@@ -286,14 +350,12 @@ namespace BattlePix.Core
         [JsonProperty("startGold_c")] public int StartGold_c = 30000;
         [JsonProperty("flatIncome_c")] public int FlatIncome_c = 200;
         [JsonProperty("pixelsPerGold")] public int PixelsPerGold = 2000;
-        [JsonProperty("battalionCap")] public int BattalionCap = 60;
 
         internal void Validate()
         {
             Rules.Require(StartGold_c >= 0, "rules.economy", "startGold_c must be >= 0");
             Rules.Require(FlatIncome_c >= 0, "rules.economy", "flatIncome_c must be >= 0");
             Rules.Require(PixelsPerGold >= 1, "rules.economy", "pixelsPerGold must be >= 1");
-            Rules.Require(BattalionCap >= 1 && BattalionCap <= 1000000, "rules.economy", "battalionCap must be in 1..1000000");
         }
     }
 
@@ -348,13 +410,39 @@ namespace BattlePix.Core
         }
     }
 
-    /// <summary>Соединения (спека 01b §9).</summary>
-    public sealed class FormationRules
+    /// <summary>Тип дивизии (спека 01c §3.1): сколько батальонов каждого типа rules.units. Цена и содержание — из батальонов.</summary>
+    public sealed class DivisionRules
     {
-        [JsonProperty("hqCost_c")] public int HqCost_c = 30000;
-        [JsonProperty("hqUpkeep_c")] public int HqUpkeep_c = 20;
-        [JsonProperty("maxBattalions")] public int MaxBattalions = 12;
-        [JsonProperty("maxFormationsPerNation")] public int MaxFormationsPerNation = 16;
+        [JsonProperty("id")] public string Id = "";
+        [JsonProperty("composition")] public int[] Composition = new int[0];
+        [JsonProperty("trainTicks")] public int TrainTicks = 300;
+
+        public static DivisionRules[] CreateDefault() => new[]
+        {
+            new DivisionRules { Id = "infantry_div", Composition = new[] { 3, 0 }, TrainTicks = 300 },
+            new DivisionRules { Id = "armor_div", Composition = new[] { 1, 2 }, TrainTicks = 300 },
+        };
+
+        internal void Validate(int index, int unitTypes)
+        {
+            string f = "rules.divisions[" + index + "]";
+            Rules.Require(!string.IsNullOrEmpty(Id), f, "id is required");
+            Rules.Require(Composition != null && Composition.Length == unitTypes, f, "composition must have one count per unit type");
+            int sum = 0;
+            foreach (var c in Composition)
+            {
+                Rules.Require(c >= 0 && c <= 64, f, "composition counts must be in 0..64");
+                sum += c;
+            }
+            Rules.Require(sum > 0, f, "composition must not be empty");
+            Rules.Require(TrainTicks >= 0, f, "trainTicks must be >= 0");
+        }
+    }
+
+    /// <summary>Армия (спека 01c §8): переброска, потери, пополнение, организация.</summary>
+    public sealed class ArmyRules
+    {
+        [JsonProperty("maxDivisionsPerNation")] public int MaxDivisionsPerNation = 32;
         [JsonProperty("transferTicks")] public int TransferTicks = 300;
         [JsonProperty("attackingDefense_bp")] public int AttackingDefense_bp = 7000;
         [JsonProperty("attackLoss_bp")] public int AttackLoss_bp = 50;
@@ -364,14 +452,21 @@ namespace BattlePix.Core
         [JsonProperty("reinforceFront_bp")] public int ReinforceFront_bp = 30;
         [JsonProperty("reinforceRear_bp")] public int ReinforceRear_bp = 150;
         [JsonProperty("reinforceCostMult_bp")] public int ReinforceCostMult_bp = 2000;
-        [JsonProperty("startInfantry")] public int StartInfantry = 3;
+        [JsonProperty("attackOrgLoss_bp")] public int AttackOrgLoss_bp = 150;
+        [JsonProperty("defendOrgLoss_bp")] public int DefendOrgLoss_bp = 100;
+        [JsonProperty("orgRecoverFront_bp")] public int OrgRecoverFront_bp = 100;
+        [JsonProperty("orgRecoverRear_bp")] public int OrgRecoverRear_bp = 250;
+        [JsonProperty("haltOrg_bp")] public int HaltOrg_bp = 1500;
+        [JsonProperty("resumeOrg_bp")] public int ResumeOrg_bp = 6000;
+        [JsonProperty("orgDefenseMin_bp")] public int OrgDefenseMin_bp = 5000;
+        [JsonProperty("desertLoss_bp")] public int DesertLoss_bp = 2000;
+        /// <summary>Стартовые дивизии по типам: готовы, в тылу, численность и организация 100%.</summary>
+        [JsonProperty("startDivisions")] public int[] StartDivisions = { 1, 0 };
 
         internal void Validate()
         {
-            const string f = "rules.formations";
-            Rules.Require(HqCost_c >= 0 && HqUpkeep_c >= 0, f, "hq costs must be >= 0");
-            Rules.Require(MaxBattalions >= 1 && MaxBattalions <= 64, f, "maxBattalions must be in 1..64");
-            Rules.Require(MaxFormationsPerNation >= 1 && MaxFormationsPerNation <= 255, f, "maxFormationsPerNation must be in 1..255");
+            const string f = "rules.army";
+            Rules.Require(MaxDivisionsPerNation >= 1 && MaxDivisionsPerNation <= 255, f, "maxDivisionsPerNation must be in 1..255");
             Rules.Require(TransferTicks >= 0, f, "transferTicks must be >= 0");
             Rules.Require(AttackingDefense_bp >= 0, f, "attackingDefense_bp must be >= 0");
             Rules.Require(AttackLoss_bp >= 0 && DefendLoss_bp >= 0, f, "losses must be >= 0");
@@ -379,10 +474,18 @@ namespace BattlePix.Core
             Rules.Require(ReinforceFront_bp >= 0 && ReinforceRear_bp >= 0 && ReinforceFront_bp <= 10000 && ReinforceRear_bp <= 10000,
                 f, "reinforce rates must be in 0..10000");
             Rules.Require(ReinforceCostMult_bp >= 0, f, "reinforceCostMult_bp must be >= 0");
-            Rules.Require(StartInfantry >= 0, f, "startInfantry must be >= 0");
-            // Потери за секунду не больше численности одного батальона: Strength_bp — short.
+            // Потери за секунду не больше численности дивизии: Strength_bp — short.
             Rules.Require((long)AttackLoss_bp * LossRatioMax_bp / 10000 + (long)DefendLoss_bp * LossRatioMax_bp / 10000 <= 10000,
                 f, "losses per second must be <= 10000 bp");
+            Rules.Require(AttackOrgLoss_bp >= 0 && DefendOrgLoss_bp >= 0 && (long)AttackOrgLoss_bp * LossRatioMax_bp / 10000 <= 10000
+                          && (long)DefendOrgLoss_bp * LossRatioMax_bp / 10000 <= 10000, f, "org losses per second must be in 0..10000 bp");
+            Rules.Require(OrgRecoverFront_bp >= 0 && OrgRecoverRear_bp >= 0 && OrgRecoverFront_bp <= 10000 && OrgRecoverRear_bp <= 10000,
+                f, "org recovery must be in 0..10000");
+            Rules.Require(HaltOrg_bp >= 0 && ResumeOrg_bp >= HaltOrg_bp && ResumeOrg_bp <= 10000, f, "0 <= haltOrg_bp <= resumeOrg_bp <= 10000");
+            Rules.Require(OrgDefenseMin_bp >= 0 && OrgDefenseMin_bp <= 10000, f, "orgDefenseMin_bp must be in 0..10000");
+            Rules.Require(DesertLoss_bp >= 1 && DesertLoss_bp <= 10000, f, "desertLoss_bp must be in 1..10000");
+            Rules.Require(StartDivisions != null, f, "startDivisions is required");
+            foreach (var c in StartDivisions) Rules.Require(c >= 0, f, "startDivisions must be >= 0");
         }
     }
 
@@ -400,8 +503,8 @@ namespace BattlePix.Core
 
     public sealed class AiFile
     {
-        /// <summary>2 — профили соединений (спека 01b §5.8).</summary>
-        public const int SupportedFormat = 2;
+        /// <summary>3 — профили дивизий (спека 01c §4.8): без retreatStrength и attackStrength. 2 — соединения 01b.</summary>
+        public const int SupportedFormat = 3;
 
         [JsonProperty("format")] public int Format = SupportedFormat;
         [JsonProperty("default")] public string Default = "base";
@@ -438,16 +541,14 @@ namespace BattlePix.Core
         }
     }
 
-    /// <summary>Профиль ИИ (спека 01b §5.8). Полный, без наследования.</summary>
+    /// <summary>Профиль ИИ (спека 01c §4.8). Полный, без наследования.</summary>
     public sealed class AiProfile
     {
         [JsonProperty("thinkIntervalTicks")] public int ThinkIntervalTicks = 10;
-        /// <summary>Абляция «ровный слой»: правила 2–4 заменены на «из тыла — на самый слабый фронт, наступать».</summary>
+        /// <summary>Абляция «ровный слой»: правила 2–5 заменены на «из тыла — на самый слабый фронт, все приказы — наступление».</summary>
         [JsonProperty("spread")] public bool Spread;
-        [JsonProperty("retreatStrength_bp")] public int RetreatStrength_bp = 4000;
-        [JsonProperty("rearStrength_bp")] public int RearStrength_bp = 2500;
+        [JsonProperty("rearStrength_bp")] public int RearStrength_bp = 3000;
         [JsonProperty("deployStrength_bp")] public int DeployStrength_bp = 7000;
-        [JsonProperty("attackStrength_bp")] public int AttackStrength_bp = 6000;
         [JsonProperty("attackMinRatio_bp")] public int AttackMinRatio_bp = 11000;
         [JsonProperty("threatRatio_bp")] public int ThreatRatio_bp = 12000;
         [JsonProperty("armorPlainShare_bp")] public int ArmorPlainShare_bp = 5500;
@@ -461,7 +562,7 @@ namespace BattlePix.Core
         {
             string f = "ai.profiles." + name;
             Rules.Require(ThinkIntervalTicks >= 1, f, "thinkIntervalTicks must be >= 1");
-            Rules.Require(RetreatStrength_bp >= 0 && RearStrength_bp >= 0 && DeployStrength_bp >= 0 && AttackStrength_bp >= 0,
+            Rules.Require(RearStrength_bp >= 0 && DeployStrength_bp >= 0,
                 f, "strength thresholds must be >= 0");
             Rules.Require(AttackMinRatio_bp >= 0 && ThreatRatio_bp >= 0, f, "ratios must be >= 0");
             Rules.Require(ArmorPlainShare_bp >= 0 && ArmorMaxShare_bp >= 0 && RecruitReserve_c >= 0, f, "recruit values must be >= 0");

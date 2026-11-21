@@ -74,7 +74,7 @@ namespace BattlePix.Core.Tests
                 Assert.AreEqual(pixels[nat.Id], nat.Pixels, $"seed {seed}: Pixels of {nat.Id}");
                 Assert.Greater(nat.Pixels, 100, $"seed {seed}: start spot of {nat.Id} too small");
                 Assert.AreEqual(30000, nat.Gold);
-                Assert.AreEqual(3, nat.Battalions);
+                Assert.AreEqual(1, nat.Divisions);
                 Assert.AreEqual(-1, nat.DiedAtTick);
             }
         }

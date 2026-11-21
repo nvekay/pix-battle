@@ -198,7 +198,7 @@ namespace BattlePix.Core
 
         /// <summary>
         /// Таблицы для фазы A (01b §5.2): живые нации и шанс захвата для каждой пары, флага «столица d рядом» и рельефа
-        /// пикселя-цели. Сила сторон уже в SidePow (FormationSystem.FillPow этого тика). att = 0 — шанс 0.
+        /// пикселя-цели. Сила сторон уже в SidePow (DivisionSystem.FillPow этого тика). att = 0 — шанс 0.
         /// Ничья земля: expandChance от любого соседа-нации, рельеф не влияет.
         /// </summary>
         void FillTables(World world, int tick)
@@ -254,7 +254,7 @@ namespace BattlePix.Core
             }.Run();
             world.MarkAllDirty();
 
-            FormationSystem.RemoveAll(world, d);
+            DivisionSystem.RemoveAll(world, d);
 
             var nations = world.NationsRW;
             var s = nations[d - 1];
@@ -262,8 +262,7 @@ namespace BattlePix.Core
             s.Capital = -1;
             s.Pixels = 0;
             s.Gold = 0;
-            s.Battalions = 0;
-            s.Formations = 0;
+            s.Divisions = 0;
             s.DiedAtTick = world.Tick;
             nations[d - 1] = s;
         }

@@ -25,8 +25,8 @@ namespace BattlePix.Core.Tests
             // Пороги сил недостижимы, денег на набор с таким запасом нет: и этот единственный раз ничего не делает.
             r.Ai.Profiles["idle"] = new AiProfile
             {
-                ThinkIntervalTicks = int.MaxValue, RetreatStrength_bp = 0, RearStrength_bp = 0, DeployStrength_bp = 1000000,
-                AttackStrength_bp = 1000000, ThreatRatio_bp = int.MaxValue, RecruitReserve_c = int.MaxValue / 2,
+                ThinkIntervalTicks = int.MaxValue, RearStrength_bp = 0, DeployStrength_bp = 1000000,
+                AttackMinRatio_bp = int.MaxValue, ThreatRatio_bp = int.MaxValue, RecruitReserve_c = int.MaxValue / 2,
             };
             for (int id = 1; id <= r.NationCount; id++) r.AssignProfile(id, "idle");
             return r;

@@ -28,41 +28,43 @@ namespace BattlePix.Core.Tests
     }
 
 
-    /// <summary>Сборка искусственных миров с соединениями для тестов.</summary>
+    /// <summary>Сборка искусственных миров с дивизиями для тестов.</summary>
     static class Worlds
     {
-        /// <summary>Нация без соединений и батальонов: id, жива, столица, пиксели, золото.</summary>
+        /// <summary>Нация без дивизий: id, жива, столица, пиксели, золото.</summary>
         public static void Nation(World w, byte id, int capital, int pixels, int gold = 0)
         {
             w.NationsRW[id - 1] = new NationState { Id = id, Alive = 1, Capital = capital, Pixels = pixels, Gold = gold, DiedAtTick = -1 };
         }
 
-        /// <summary>Соединение k нации на фронте front с приказом order и батальонами types (на 100%), на месте.</summary>
-        public static int Formation(World w, byte owner, int k, byte front, byte order, params byte[] types)
+        /// <summary>Дивизия k нации типа type на фронте front, готова и на месте.</summary>
+        public static int Division(World w, byte owner, int k, byte front, byte type, int strength = 10000, int org = 10000)
         {
-            FormationSystem.CreateFormation(w, owner, k);
-            int slot = w.FormationSlot(owner, k);
-            var f = w.FormationsRW[slot];
-            f.Front = front;
-            f.Order = order;
-            w.FormationsRW[slot] = f;
-            foreach (var t in types) FormationSystem.AddBattalion(w, slot, t);
+            DivisionSystem.Create(w, owner, k, type, 0);
+            int slot = w.DivisionSlot(owner, k);
+            var v = w.DivisionsRW[slot];
+            v.Front = front;
+            v.Strength_bp = (short)strength;
+            v.Org_bp = (short)org;
+            w.DivisionsRW[slot] = v;
             return slot;
         }
 
-        public static byte[] Many(byte type, int count)
-        {
-            var r = new byte[count];
-            for (int i = 0; i < count; i++) r[i] = type;
-            return r;
-        }
+        /// <summary>Приказ стороны a на фронте с d.</summary>
+        public static void Order(World w, byte a, byte d, byte order) => w.FrontOrderRW[(a - 1) * w.NationCount + (d - 1)] = order;
 
-        public static byte[] Concat(byte[] a, byte[] b)
+        /// <summary>
+        /// Заменить типы дивизий на свои составы (по батальонам rules.units) и пересчитать таблицы.
+        /// Нужно тестам 1b, где соединения были собраны из батальонов поштучно.
+        /// </summary>
+        public static Rules WithTypes(Rules rules, params int[][] compositions)
         {
-            var r = new byte[a.Length + b.Length];
-            a.CopyTo(r, 0);
-            b.CopyTo(r, a.Length);
-            return r;
+            var types = new DivisionRules[compositions.Length];
+            for (int i = 0; i < types.Length; i++) types[i] = new DivisionRules { Id = "t" + i, Composition = compositions[i], TrainTicks = 0 };
+            rules.Divisions = types;
+            rules.Army.StartDivisions = new int[types.Length];
+            rules.RebuildDivisionTables();
+            return rules;
         }
 
         public static void Recount(World w)
@@ -72,11 +74,11 @@ namespace BattlePix.Core.Tests
         }
 
         /// <summary>
-        /// Пример раздела 6 спеки 01b: карта 2×120, столбец 0 — Красные (1, равнина), столбец 1 — Синие (2):
+        /// Пример раздела 5 спеки 01c: карта 2×120, столбец 0 — Красные (1, равнина), столбец 1 — Синие (2):
         /// строки 0–71 равнина, 72–107 холмы, 108–119 горы. FrontLen[1,2] = 120, по рельефу синих 72 / 36 / 12.
-        /// Красные: 1-е — 8 пехоты + 3 брони, наступление; если second — 2-е, 8 пехоты, наступление. Синие: 10 пехоты, оборона.
+        /// Красные: 2 танковые (k 0–1) + 2 пехотные (k 2–3), наступление. Синие: 3 пехотные, оборона. Всё на 100%.
         /// </summary>
-        public static World Section6(bool second, int gold = 1000000)
+        public static World Section5(int gold = 1000000, int redOrg = 10000, int blueOrg = 10000)
         {
             var rules = Rules.Default(2);
             var w = new World(2, 120, 2, 1, rules);
@@ -89,27 +91,45 @@ namespace BattlePix.Core.Tests
             }
             Nation(w, 1, -1, 120, gold);
             Nation(w, 2, -1, 120, gold);
-            Formation(w, 1, 0, 2, Orders.Attack, Concat(Many(UnitTypes.Infantry, 8), Many(UnitTypes.Armor, 3)));
-            if (second) Formation(w, 1, 1, 2, Orders.Attack, Many(UnitTypes.Infantry, 8));
-            Formation(w, 2, 0, 1, Orders.Defend, Many(UnitTypes.Infantry, 10));
+            Division(w, 1, 0, 2, DivisionTypes.Armor, org: redOrg);
+            Division(w, 1, 1, 2, DivisionTypes.Armor, org: redOrg);
+            Division(w, 1, 2, 2, DivisionTypes.Infantry, org: redOrg);
+            Division(w, 1, 3, 2, DivisionTypes.Infantry, org: redOrg);
+            Order(w, 1, 2, Orders.Attack);
+            for (int k = 0; k < 3; k++) Division(w, 2, k, 1, DivisionTypes.Infantry, org: blueOrg);
             Recount(w);
             return w;
         }
     }
 
-    /// <summary>Спека 01b, acceptance 4: обе таблицы раздела 6 через FillPow и FillTables, включая округления.</summary>
-    public class FormationPowTests
+    /// <summary>Спека 01c, acceptance 3: таблица типов и первая таблица раздела 5 через FillPow и FillTables, включая округления.</summary>
+    public class DivisionPowTests
     {
-        static void Check(bool second, int[] att, int[] def, int[] chance)
+        [Test]
+        public void TypeTable_Atk100_Def100_Cost_Upkeep()
         {
-            var w = Worlds.Section6(second);
+            var r = Rules.Default(2);
+            CollectionAssert.AreEqual(new[] { 3000, 3000, 2700 }, new[] { r.DivisionAtk100(0, 0), r.DivisionAtk100(0, 1), r.DivisionAtk100(0, 2) });
+            CollectionAssert.AreEqual(new[] { 4200, 4200, 4200 }, new[] { r.DivisionDef100(0, 0), r.DivisionDef100(0, 1), r.DivisionDef100(0, 2) });
+            CollectionAssert.AreEqual(new[] { 7760, 5160, 2980 }, new[] { r.DivisionAtk100(1, 0), r.DivisionAtk100(1, 1), r.DivisionAtk100(1, 2) });
+            CollectionAssert.AreEqual(new[] { 4200, 3640, 2800 }, new[] { r.DivisionDef100(1, 0), r.DivisionDef100(1, 1), r.DivisionDef100(1, 2) });
+            Assert.AreEqual(45000, r.DivisionCost(DivisionTypes.Infantry));
+            Assert.AreEqual(95000, r.DivisionCost(DivisionTypes.Armor));
+            Assert.AreEqual(30, r.DivisionUpkeep(DivisionTypes.Infantry));
+            Assert.AreEqual(70, r.DivisionUpkeep(DivisionTypes.Armor));
+        }
+
+        [Test]
+        public void Section5_Table()
+        {
+            var w = Worlds.Section5();
             var front = new FrontSystem { SingleThreaded = true };
             try
             {
                 Assert.AreEqual(120, w.FrontLength(1, 2));
                 CollectionAssert.AreEqual(new[] { 72, 36, 12 }, new[] { w.FrontTerrainLength(1, 2, 0), w.FrontTerrainLength(1, 2, 1), w.FrontTerrainLength(1, 2, 2) });
-                CollectionAssert.AreEqual(new[] { 120, 0, 0 }, new[] { w.FrontTerrainLength(2, 1, 0), w.FrontTerrainLength(2, 1, 1), w.FrontTerrainLength(2, 1, 2) });
-                new FormationSystem().FillPow(w);
+                new DivisionSystem().FillPow(w);
+                int[] att = { 179, 136, 94 }, def = { 145, 181, 217 }, chance = { 78, 0, 0 };
                 for (int tr = 0; tr < 3; tr++)
                 {
                     Assert.AreEqual(att[tr], w.AttPow(1, 2, tr), $"attPow tr {tr}");
@@ -126,23 +146,43 @@ namespace BattlePix.Core.Tests
             }
         }
 
-        [Test] public void Table1_OneFormation() => Check(false, new[] { 151, 118, 86 }, new[] { 156, 195, 234 }, new[] { 30, 0, 0 });
-        [Test] public void Table2_TwoFormations() => Check(true, new[] { 217, 185, 146 }, new[] { 156, 195, 234 }, new[] { 106, 26, 0 });
+        [Test]
+        public void ExhaustedAttackers_DoNotAttack_AndDefendWithoutPenalty()
+        {
+            var w = Worlds.Section5();
+            try
+            {
+                for (int k = 0; k < 4; k++)
+                {
+                    var v = w.DivisionsRW[w.DivisionSlot(1, k)];
+                    v.Exhausted = 1;
+                    w.DivisionsRW[w.DivisionSlot(1, k)] = v;
+                }
+                new DivisionSystem().FillPow(w);
+                for (int tr = 0; tr < 3; tr++) Assert.AreEqual(0, w.AttPow(1, 2, tr), "exhausted: attack 0");
+                // Оборона Красных без штрафа наступления: (2 × 4200 + 2 × 4200) / 120 + 40 = 180 на равнине.
+                Assert.AreEqual(180, w.DefPow(1, 2, 0));
+            }
+            finally
+            {
+                w.Dispose();
+            }
+        }
 
         [Test]
         public void CapitalFlag_MultipliesDefense_CappedByDefenseMultCap()
         {
-            var w = Worlds.Section6(true);
+            var w = Worlds.Section5();
             var front = new FrontSystem { SingleThreaded = true };
             try
             {
-                new FormationSystem().FillPow(w);
-                // Столица ×3: def 156 → 468, ratio 217×10000/468 = 4636 < stall → 0.
+                new DivisionSystem().FillPow(w);
+                // Столица ×3: def 145 → 435, ratio 179×10000/435 = 4114 < stall → 0.
                 Assert.AreEqual(0, front.ChanceForTest(w, 1, 2, 1, 0));
-                w.Rules.Front.CapitalMult_bp = 11000; // ×1,1: def 171, ratio 12690, chance 180×4690/10000 = 84
-                Assert.AreEqual(84, front.ChanceForTest(w, 1, 2, 1, 0));
+                w.Rules.Front.CapitalMult_bp = 11000; // ×1,1: def 159, ratio 11257, chance 180×3257/10000 = 58
+                Assert.AreEqual(58, front.ChanceForTest(w, 1, 2, 1, 0));
                 w.Rules.Front.DefenseMultCap_bp = 10000; // кап ×1: как без столицы
-                Assert.AreEqual(106, front.ChanceForTest(w, 1, 2, 1, 0));
+                Assert.AreEqual(78, front.ChanceForTest(w, 1, 2, 1, 0));
             }
             finally
             {
@@ -155,7 +195,8 @@ namespace BattlePix.Core.Tests
     /// <summary>
     /// Спека 01b, acceptance 5: фаза A на искусственной паре с рельефом и фиксированной солью.
     /// Карта 4×2, x &lt; 2 — Красные (1), x ≥ 2 — Синие (2). Синий пиксель 2 — равнина, 6 — холмы, остальное равнина.
-    /// Красные: 2 пехоты + 1 броня, наступление; Синие: 3 пехоты, оборона. FrontLen = 2, гарнизон 40, окружение выключено.
+    /// Красные: дивизия [2 пехоты, 1 броня], наступление; Синие: дивизия [3 пехоты], оборона (01c: соединения 1b — типами дивизий).
+    /// FrontLen = 2, гарнизон 40, окружение выключено.
     /// att100: равнина 2000 + 3380 = 5380, холмы 2000 + 2080 = 4080 → attPow 2690 / 2040.
     /// def100 Синих 4200 → (2100 + 40) × рельеф: 2140 / 2675. ratio: 12570 / 7626 → chance 82 / 0.
     /// Frontier = [1, 2, 5, 6], красный сосед у 2 и 6 — W (k = 3). Эталонный pcg_hash: соль 6947 → roll(2,3) = 28,
@@ -165,7 +206,7 @@ namespace BattlePix.Core.Tests
     {
         static byte[] Decide(uint salt)
         {
-            var rules = Rules.Default(2);
+            var rules = Worlds.WithTypes(Rules.Default(2), new[] { 2, 1 }, new[] { 3, 0 });
             rules.Front.SurroundMult_bp = new[] { 10000, 10000, 10000, 10000 };
             var w = new World(4, 2, 2, 1, rules);
             var front = new FrontSystem { SingleThreaded = true };
@@ -178,10 +219,11 @@ namespace BattlePix.Core.Tests
                 }
                 Worlds.Nation(w, 1, -1, 4);
                 Worlds.Nation(w, 2, -1, 4);
-                Worlds.Formation(w, 1, 0, 2, Orders.Attack, UnitTypes.Infantry, UnitTypes.Infantry, UnitTypes.Armor);
-                Worlds.Formation(w, 2, 0, 1, Orders.Defend, Worlds.Many(UnitTypes.Infantry, 3));
+                Worlds.Division(w, 1, 0, 2, 0);
+                Worlds.Order(w, 1, 2, Orders.Attack);
+                Worlds.Division(w, 2, 0, 1, 1);
                 Worlds.Recount(w);
-                new FormationSystem().FillPow(w);
+                new DivisionSystem().FillPow(w);
                 CollectionAssert.AreEqual(new[] { 1, 2, 5, 6 }, w.Frontier.ToArray());
                 Assert.AreEqual(2690, w.AttPow(1, 2, 0));
                 Assert.AreEqual(2040, w.AttPow(1, 2, 1));
@@ -209,11 +251,11 @@ namespace BattlePix.Core.Tests
     public class SurroundTests
     {
         // 3×3, вся суша, центр (4) — Синие, остальное — Красные. Столиц нет. FrontLen[1,2] = 4.
-        // Красные: 1 пехота, наступление → attPow 1000 / 4 = 250. Синие без соединений, гарнизон 250 → defPow 250.
+        // Красные: дивизия из 1 пехоты, наступление → attPow 1000 / 4 = 250. Синие без дивизий, гарнизон 250 → defPow 250.
         // ratio 1,0 → chance 36. У центра четыре красных соседа: ×4 → 144. Соль 115: roll(4, N) = 97.
         static byte[] Decide(int[] surround)
         {
-            var rules = Rules.Default(2);
+            var rules = Worlds.WithTypes(Rules.Default(2), new[] { 1, 0 });
             rules.Front.SurroundMult_bp = surround;
             rules.Front.GarrisonPerEdge = 250;
             var world = new World(3, 3, 2, 1, rules);
@@ -227,9 +269,10 @@ namespace BattlePix.Core.Tests
                 }
                 Worlds.Nation(world, 1, -1, 8);
                 Worlds.Nation(world, 2, -1, 1);
-                Worlds.Formation(world, 1, 0, 2, Orders.Attack, UnitTypes.Infantry);
+                Worlds.Division(world, 1, 0, 2, 0);
+                Worlds.Order(world, 1, 2, Orders.Attack);
                 Worlds.Recount(world);
-                new FormationSystem().FillPow(world);
+                new DivisionSystem().FillPow(world);
                 Assert.AreEqual(250, world.AttPow(1, 2, 0));
                 Assert.AreEqual(250, world.DefPow(2, 1, 0));
                 Assert.AreEqual(97, Pcg32.FrontRoll(115, 4, 0));
@@ -250,7 +293,7 @@ namespace BattlePix.Core.Tests
 
     public class FrontSimulationTests
     {
-        /// <summary>01b acceptance 9: один поток и все потоки дают одинаковый хеш на сидах 1–10 через 3 000 тиков.</summary>
+        /// <summary>01c acceptance 6: один поток и все потоки дают одинаковый хеш на сидах 1–10 через 3 000 тиков.</summary>
         [Test]
         public void FrontJob_SingleVsMultiThread_SameHash()
         {
@@ -274,7 +317,7 @@ namespace BattlePix.Core.Tests
             }
         }
 
-        /// <summary>01b acceptance 10: FrontLen, FrontTerrainLen, Frontier, Pixels, Battalions, Formations совпадают с пересчётом с нуля каждые 600 тиков.</summary>
+        /// <summary>01c acceptance 6: FrontLen, FrontTerrainLen, Frontier, Pixels, Divisions совпадают с пересчётом с нуля каждые 600 тиков.</summary>
         [Test]
         public void DerivedStateMatches()
         {
@@ -309,11 +352,11 @@ namespace BattlePix.Core.Tests
         }
     }
 
-    /// <summary>Гибель нации (spec-01 acceptance 15, 01b §5.6): земля ничья, соединения сняты, у врагов фронт закрыт.</summary>
+    /// <summary>Гибель нации (spec-01 acceptance 15, 01c §4.5): земля ничья, дивизии сняты, FrontOrder обнулён, у врагов фронт закрыт.</summary>
     public class NationDeathTests
     {
         // Ряд 7×1: [1 1 2* 2 2 3 3], * — столица Синих (2). Шанс везде 100%: каждая атака проходит.
-        // Все наступают: Красные и Зелёные на Синих, у Синих по соединению на каждый фронт.
+        // Все наступают: Красные и Зелёные на Синих, у Синих по дивизии на каждый фронт. Типы: 0 — [1 пехота], 1 — [1 броня].
         static World Make(Rules rules)
         {
             var world = new World(7, 1, 3, 1, rules);
@@ -326,10 +369,14 @@ namespace BattlePix.Core.Tests
             Worlds.Nation(world, 1, 0, 2);
             Worlds.Nation(world, 2, 2, 3, 500);
             Worlds.Nation(world, 3, 6, 2);
-            Worlds.Formation(world, 1, 0, 2, Orders.Attack, UnitTypes.Infantry);
-            Worlds.Formation(world, 2, 0, 1, Orders.Attack, UnitTypes.Infantry);
-            Worlds.Formation(world, 2, 1, 3, Orders.Attack, UnitTypes.Armor);
-            Worlds.Formation(world, 3, 0, 2, Orders.Attack, UnitTypes.Infantry);
+            Worlds.Division(world, 1, 0, 2, 0);
+            Worlds.Division(world, 2, 0, 1, 0);
+            Worlds.Division(world, 2, 1, 3, 1);
+            Worlds.Division(world, 3, 0, 2, 0);
+            Worlds.Order(world, 1, 2, Orders.Attack);
+            Worlds.Order(world, 2, 1, Orders.Attack);
+            Worlds.Order(world, 2, 3, Orders.Attack);
+            Worlds.Order(world, 3, 2, Orders.Attack);
             FrontSystem.StampCapitals(world);
             Worlds.Recount(world);
             return world;
@@ -337,7 +384,7 @@ namespace BattlePix.Core.Tests
 
         static Rules AlwaysWin()
         {
-            var rules = Rules.Default(3);
+            var rules = Worlds.WithTypes(Rules.Default(3), new[] { 1, 0 }, new[] { 0, 1 });
             rules.Front.WarChance_bp = 1000000;
             rules.Front.StallRatio_bp = 0;
             rules.Front.MaxChance_bp = 10000;
@@ -347,7 +394,7 @@ namespace BattlePix.Core.Tests
         }
 
         [Test]
-        public void CapitalFalls_LandBecomesNoMans_FormationsRemoved_EnemiesGoToRear()
+        public void CapitalFalls_LandBecomesNoMans_DivisionsRemoved_EnemiesGoToRear()
         {
             var rules = AlwaysWin();
             var world = Make(rules);
@@ -355,9 +402,9 @@ namespace BattlePix.Core.Tests
             try
             {
                 var ctx = new CommandContext(TestData.Config(), rules, 0);
-                new FormationSystem().FillPow(world);
+                new DivisionSystem().FillPow(world);
                 front.Tick(world, ctx);
-                FormationSystem.CloseFronts(world);
+                DivisionSystem.CloseFronts(world);
 
                 // Красные взяли столицу (2), Зелёные — пиксель 4. Синие взяли 1 и 5, но пали: те пиксели ничьи.
                 CollectionAssert.AreEqual(new byte[] { 1, 0, 1, 0, 3, 0, 3 }, world.Owner.ToArray());
@@ -366,17 +413,21 @@ namespace BattlePix.Core.Tests
                 Assert.AreEqual(-1, dead.Capital);
                 Assert.AreEqual(0, dead.Pixels);
                 Assert.AreEqual(0, dead.Gold);
-                Assert.AreEqual(0, dead.Battalions);
-                Assert.AreEqual(0, dead.Formations);
+                Assert.AreEqual(0, dead.Divisions);
                 Assert.AreEqual(0, dead.DiedAtTick);
-                for (int k = 0; k < world.MaxFormationsPerNation; k++)
-                    Assert.AreEqual(0, world.FormationAt(world.FormationSlot(2, k)).Alive, $"formation {k} of the dead nation");
-                foreach (var b in world.Battalions.ToArray()) Assert.IsTrue(b.Alive == 0 || b.Type == UnitTypes.Infantry, "no armor left (only Blue had armor)");
+                for (int k = 0; k < world.MaxDivisionsPerNation; k++)
+                    Assert.AreEqual(0, world.DivisionAt(world.DivisionSlot(2, k)).Alive, $"division {k} of the dead nation");
+                foreach (var v in world.Divisions.ToArray()) Assert.IsTrue(v.Alive == 0 || v.Type == 0, "no armor left (only Blue had armor)");
                 foreach (var c in world.CapitalCover.ToArray()) Assert.AreEqual(0, c & 2, "CapitalCover bit of the dead nation");
-                // Соединения Красных и Зелёных стояли на фронте с Синими: фронт закрыт, они в тылу.
-                Assert.AreEqual(0, world.FormationAt(world.FormationSlot(1, 0)).Front);
-                Assert.AreEqual(0, world.FormationAt(world.FormationSlot(3, 0)).Front);
-                Assert.AreEqual(1, world.Nations[0].Battalions);
+                for (int i = 1; i <= 3; i++)
+                {
+                    Assert.AreEqual(Orders.Defend, world.FrontOrderOf(2, i), $"order row of the dead nation, {i}");
+                    Assert.AreEqual(Orders.Defend, world.FrontOrderOf(i, 2), $"order column of the dead nation, {i}");
+                }
+                // Дивизии Красных и Зелёных стояли на фронте с Синими: фронт закрыт, они в тылу.
+                Assert.AreEqual(0, world.DivisionAt(world.DivisionSlot(1, 0)).Front);
+                Assert.AreEqual(0, world.DivisionAt(world.DivisionSlot(3, 0)).Front);
+                Assert.AreEqual(1, world.Nations[0].Divisions);
                 Assert.AreEqual(2, world.Nations[0].Pixels);
                 Assert.AreEqual(2, world.Nations[2].Pixels);
                 Derived.AssertMatches(world, "after death");
@@ -422,22 +473,20 @@ namespace BattlePix.Core.Tests
             CollectionAssert.AreEqual(frontLen, w.FrontLen.ToArray(), $"{where}: FrontLen");
             CollectionAssert.AreEqual(terrainLen, w.FrontTerrainLen.ToArray(), $"{where}: FrontTerrainLen");
 
-            // Battalions и Formations у нации — по живым слотам.
+            // Divisions у нации — по живым слотам.
             for (int k = 0; k < w.NationCount; k++)
             {
                 byte id = (byte)(k + 1);
-                int formations = 0, battalions = 0;
-                for (int f = 0; f < w.MaxFormationsPerNation; f++)
+                int divisions = 0;
+                for (int j = 0; j < w.MaxDivisionsPerNation; j++)
                 {
-                    int slot = w.FormationSlot(id, f);
-                    var form = w.FormationAt(slot);
-                    if (form.Alive == 0) continue;
-                    Assert.AreEqual(id, form.Owner, $"{where}: owner of formation slot {slot}");
-                    formations++;
-                    battalions += FormationSystem.BattalionCount(w, slot);
+                    int slot = w.DivisionSlot(id, j);
+                    var v = w.DivisionAt(slot);
+                    if (v.Alive == 0) continue;
+                    Assert.AreEqual(id, v.Owner, $"{where}: owner of division slot {slot}");
+                    divisions++;
                 }
-                Assert.AreEqual(formations, w.Nations[k].Formations, $"{where}: Formations of {id}");
-                Assert.AreEqual(battalions, w.Nations[k].Battalions, $"{where}: Battalions of {id}");
+                Assert.AreEqual(divisions, w.Nations[k].Divisions, $"{where}: Divisions of {id}");
             }
 
             // Frontier: удаление ленивое, поэтому в списке могут остаться устаревшие записи.
