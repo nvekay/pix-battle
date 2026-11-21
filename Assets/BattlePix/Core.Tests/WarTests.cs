@@ -153,8 +153,8 @@ namespace BattlePix.Core.Tests
                 Assert.AreEqual(0, w.DivisionAt(w.DivisionSlot(1, 0)).ArriveTick);
                 Assert.AreEqual(Orders.Defend, w.FrontOrderOf(1, 2));
                 Assert.AreEqual(Orders.Defend, w.FrontOrderOf(2, 1));
-                Assert.AreEqual(500, w.Nation(1).OwnWarEndTick, "attacker's own war ended");
-                Assert.AreEqual(0, w.Nation(2).OwnWarEndTick);
+                Assert.AreEqual(500, w.Nation(1).LastWarEndTick, "attacker's war ended");
+                Assert.AreEqual(500, w.Nation(2).LastWarEndTick, "defender's war ended too (idle clock counts any war)");
                 Assert.IsFalse(w.AtWar(1, 2));
 
                 var e = w.WarEvents[w.WarEvents.Count - 1];

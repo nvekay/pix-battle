@@ -470,7 +470,8 @@ namespace BattlePix.Core.Tests
                 Assert.AreEqual(WarStatus.Peace, world.WarOf(1, 2).Status);
                 Assert.AreEqual(WarStatus.Peace, world.WarOf(2, 3).Status);
                 Assert.AreEqual(0, world.WarOf(1, 2).Attacker);
-                Assert.AreEqual(world.Tick, world.Nation(1).OwnWarEndTick, "Red's own war ended");
+                Assert.AreEqual(world.Tick, world.Nation(1).LastWarEndTick, "Red's war ended");
+                Assert.AreEqual(world.Tick, world.Nation(3).LastWarEndTick, "Green's war ended");
                 Assert.AreEqual(2, world.WarEvents.FindAll(e => e.Kind == WarEventKind.EndedByDeath).Count);
                 Derived.AssertMatches(world, "after death");
             }

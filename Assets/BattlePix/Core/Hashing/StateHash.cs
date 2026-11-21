@@ -8,7 +8,7 @@ namespace BattlePix.Core
     /// Хеш состояния: FNV-1a 64 по байтам (int — 4 байта LE, short — 2 байта LE, ulong — 8 байт LE) в порядке:
     /// 1) Tick, Owner, Terrain, Elevation, Biome, Core (02b);
     /// 2) для каждой нации по id: Id, Alive, Capital, Pixels, Gold, Divisions, DiedAtTick,
-    ///    RecruitedInfDiv, RecruitedArmorDiv, DivisionsLost, OwnWarEndTick;
+    ///    RecruitedInfDiv, RecruitedArmorDiv, DivisionsLost, LastWarEndTick;
     /// 3) Divisions по слотам: Owner, Alive, Type, Front, ReadyTick, ArriveTick, Strength_bp, Org_bp, Exhausted;
     /// 4) FrontOrder целиком, затем Wars по парам a &lt; b (a по возрастанию, внутри b по возрастанию), поля в порядке объявления War;
     /// 5) FlipHistory целиком;
@@ -121,7 +121,7 @@ namespace BattlePix.Core
                 h = I(h, n.RecruitedInfDiv);
                 h = I(h, n.RecruitedArmorDiv);
                 h = I(h, n.DivisionsLost);
-                h = I(h, n.OwnWarEndTick);
+                h = I(h, n.LastWarEndTick);
             }
 
             for (int i = 0; i < Divisions.Length; i++)
@@ -206,7 +206,7 @@ namespace BattlePix.Core
                 h = Fnv1a64.AddInt32(h, n.RecruitedInfDiv);
                 h = Fnv1a64.AddInt32(h, n.RecruitedArmorDiv);
                 h = Fnv1a64.AddInt32(h, n.DivisionsLost);
-                h = Fnv1a64.AddInt32(h, n.OwnWarEndTick);
+                h = Fnv1a64.AddInt32(h, n.LastWarEndTick);
             }
             var divisions = world.Divisions;
             for (int i = 0; i < divisions.Length; i++)

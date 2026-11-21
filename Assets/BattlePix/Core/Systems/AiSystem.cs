@@ -167,7 +167,8 @@ namespace BattlePix.Core
                 }
             }
             if (c == 0) return false;
-            int since = w.Tick - w.Nation(self).OwnWarEndTick;
+            // Часы повода (правка 02b): время без любой войны, и своей, и где мы обороняемся.
+            int since = WarSystem.Wars(w, self) > 0 ? 0 : w.Tick - w.Nation(self).LastWarEndTick;
             if (best < p.DeclareRatio_bp && since < p.IdleWarTicks) return false;
 
             // Подготовка: пока у границы с c меньше stageShare готовых дивизий и в тылу есть свежая — к границе.
