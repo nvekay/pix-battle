@@ -16,7 +16,7 @@
     "capitalRetries": 16
   },
   "front": {
-    "expandChance_bp": 120,
+    "expandChance_bp": 70,
     "warChance_bp": 180,
     "stallRatio_bp": 8000,
     "maxChance_bp": 800,

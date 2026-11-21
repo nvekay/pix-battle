@@ -218,7 +218,7 @@ namespace BattlePix.Core
 
     public sealed class FrontRules
     {
-        [JsonProperty("expandChance_bp")] public int ExpandChance_bp = 120;
+        [JsonProperty("expandChance_bp")] public int ExpandChance_bp = 70;
         [JsonProperty("warChance_bp")] public int WarChance_bp = 180;
         [JsonProperty("stallRatio_bp")] public int StallRatio_bp = 8000;
         [JsonProperty("maxChance_bp")] public int MaxChance_bp = 800;
