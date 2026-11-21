@@ -14,8 +14,9 @@ namespace BattlePix.Core.Tests
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.MapGen), Newtonsoft.Json.JsonConvert.SerializeObject(r.MapGen));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Front), Newtonsoft.Json.JsonConvert.SerializeObject(r.Front));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Economy), Newtonsoft.Json.JsonConvert.SerializeObject(r.Economy));
-            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Forts), Newtonsoft.Json.JsonConvert.SerializeObject(r.Forts));
-            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Strikes), Newtonsoft.Json.JsonConvert.SerializeObject(r.Strikes));
+            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Terrain), Newtonsoft.Json.JsonConvert.SerializeObject(r.Terrain));
+            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Units), Newtonsoft.Json.JsonConvert.SerializeObject(r.Units));
+            Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Formations), Newtonsoft.Json.JsonConvert.SerializeObject(r.Formations));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.End), Newtonsoft.Json.JsonConvert.SerializeObject(r.End));
             Assert.AreEqual(Newtonsoft.Json.JsonConvert.SerializeObject(d.Ai), Newtonsoft.Json.JsonConvert.SerializeObject(r.Ai));
             Assert.AreEqual("base", r.ProfileName(1));
@@ -38,28 +39,35 @@ namespace BattlePix.Core.Tests
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations.Replace("\"id\": 5", "\"id\": 15"), rules, ai), "ids not contiguous");
             Assert.Throws<System.FormatException>(() => Rules.FromJson("[{\"id\":0,\"name\":\"\",\"color\":\"\"},{\"id\":1,\"name\":\"\",\"color\":\"\"}]", rules, ai),
                 "one nation is not a match");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"format\": 2", "\"format\": 1"), ai), "old rules format");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"maxBattalions\": 12", "\"maxBattalions\": 0"), ai));
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"terrainDefense_bp\": [10000, 12500, 15000]", "\"terrainDefense_bp\": [10000]"), ai));
         }
 
         [Test]
         public void Assign_AndProfileOverride()
         {
             var r = Rules.FromJson(TestData.Text("nations.json"), TestData.Text("rules.json"),
-                TestData.Text("ai.json").Replace("\"assign\": {}", "\"assign\": { \"3\": \"no_forts\" }"));
-            Assert.AreEqual("no_forts", r.ProfileName(3));
-            Assert.AreEqual(1000000, r.Profile(3).FortLossThresholdPx);
-            r.AssignProfile(3, "no_strikes");
-            Assert.AreEqual(1000000, r.Profile(3).StrikeSurplusBattalions);
+                TestData.Text("ai.json").Replace("\"assign\": {}", "\"assign\": { \"3\": \"spread\" }"));
+            Assert.AreEqual("spread", r.ProfileName(3));
+            Assert.IsTrue(r.Profile(3).Spread);
+            Assert.IsFalse(r.Profile(1).Spread);
+            r.AssignProfile(3, "no_armor");
+            Assert.AreEqual(1000000, r.Profile(3).ArmorPlainShare_bp);
             Assert.Throws<System.FormatException>(() => r.AssignProfile(1, "missing"));
         }
 
         [Test]
-        public void FortCost_FollowsTable_ThenTimesOneAndAHalf()
+        public void UnitsValidation()
         {
-            var r = Rules.Default(8);
-            Assert.AreEqual(40000, r.FortCost(0));
-            Assert.AreEqual(202500, r.FortCost(4));
-            Assert.AreEqual(303750, r.FortCost(5));
-            Assert.AreEqual(455625, r.FortCost(6));
+            var f = new RulesFile();
+            f.Units = new UnitRules[0];
+            Assert.Throws<System.FormatException>(() => f.Validate(), "no unit types");
+            f.Units = new UnitRules[9];
+            for (int i = 0; i < 9; i++) f.Units[i] = UnitRules.CreateDefault()[0];
+            Assert.Throws<System.FormatException>(() => f.Validate(), "more than 8 types");
+            f.Units = UnitRules.CreateDefault();
+            f.Validate();
         }
     }
 }

@@ -153,8 +153,8 @@ namespace BattlePix.Game
         public void SetStrikeMask(int mask) => _material.SetFloat(StrikeMaskId, mask);
         public void SetFocusNation(int nation) => _material.SetFloat(FocusId, nation);
 
-        /// <summary>Значки: столицы живых наций, живые крепости, кольцо выбранной крепости или места постройки.</summary>
-        public void SetMarkers(World world, int ringPixel, int ringRadius)
+        /// <summary>Значки: столицы живых наций. Значки штабов на фронтах — PR 4 переделки.</summary>
+        public void SetMarkers(World world)
         {
             int n = 0, w = world.Width;
             for (int k = 0; k < world.NationCount && n < MaxMarkers; k++)
@@ -163,15 +163,6 @@ namespace BattlePix.Game
                 if (s.Alive == 0 || s.Capital < 0) continue;
                 _markers[n++] = new Vector4(s.Capital % w, s.Capital / w, 1, s.Id);
             }
-            var forts = world.Forts;
-            for (int i = 0; i < forts.Length && n < MaxMarkers; i++)
-            {
-                var f = forts[i];
-                if (f.Alive == 0) continue;
-                _markers[n++] = new Vector4(f.Pixel % w, f.Pixel / w, 2, f.Owner);
-            }
-            if (ringPixel >= 0 && n < MaxMarkers)
-                _markers[n++] = new Vector4(ringPixel % w, ringPixel / w, 3, ringRadius);
             _material.SetVectorArray(MarkersId, _markers);
             _material.SetFloat(MarkerCountId, n);
         }

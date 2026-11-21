@@ -38,8 +38,12 @@ namespace BattlePix.Core
                 n.Capital = cap;
                 n.Pixels = pixels;
                 n.Gold = rules.Economy.StartGold_c;
-                n.Battalions = rules.Economy.StartBattalions;
                 nations[k] = n;
+
+                // Стартовое соединение (01b §5.7): слот 0, тыл, оборона, startInfantry пехоты на 100%.
+                FormationSystem.CreateFormation(world, id, 0);
+                for (int b = 0; b < rules.Formations.StartInfantry; b++)
+                    FormationSystem.AddBattalion(world, world.FormationSlot(id, 0), UnitTypes.Infantry);
             }
             world.MapGen = r.Stats;
             world.MarkAllDirty();

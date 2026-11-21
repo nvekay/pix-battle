@@ -22,7 +22,8 @@ namespace BattlePix.Core
     /// </summary>
     public sealed class ReplayFile
     {
-        public const int SupportedFormat = 2;
+        /// <summary>3 — фронты и соединения (спека 01b). 2 — прототип с крепостями и ударом, 1 — этап 0.</summary>
+        public const int SupportedFormat = 3;
 
         [JsonProperty("format")] public int Format = SupportedFormat;
         [JsonProperty("build")] public string Build = "";
@@ -50,7 +51,10 @@ namespace BattlePix.Core
                     ?? throw new FormatException("replay: empty");
             if (r.Format == 1)
                 throw new UnsupportedReplayFormatException(1,
-                    "replay: format 1 is from stage 0 (Foundation): it has no rules and cannot be replayed, expected format 2");
+                    "replay: format 1 is from stage 0 (Foundation): it has no rules and cannot be replayed, expected format 3");
+            if (r.Format == 2)
+                throw new UnsupportedReplayFormatException(2,
+                    "replay: format 2 is from before fronts and formations (forts and strikes): it cannot be replayed, expected format 3");
             if (r.Format != SupportedFormat)
                 throw new UnsupportedReplayFormatException(r.Format,
                     $"replay: format {r.Format} is not supported, expected {SupportedFormat}");
