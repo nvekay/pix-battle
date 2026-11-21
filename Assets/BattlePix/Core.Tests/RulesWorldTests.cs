@@ -44,7 +44,7 @@ namespace BattlePix.Core.Tests
                         s.DivisionsLost = rng.NextInt(1000);
                         s.Divisions = (byte)rng.NextInt(33);
                         s.DiedAtTick = rng.NextInt(3) - 1;
-                        s.OwnWarEndTick = rng.NextInt(100000);
+                        s.LastWarEndTick = rng.NextInt(100000);
                         nat[i] = s;
                     }
                     // 02b: Core и все поля Wars.
@@ -104,7 +104,7 @@ namespace BattlePix.Core.Tests
                 w.Winner = 3;
                 ulong h3 = sim.ComputeHash();
                 Assert.AreNotEqual(h2, h3);
-                // 02b: Core, каждое поле Wars пары a < b и OwnWarEndTick входят в хеш.
+                // 02b: Core, каждое поле Wars пары a < b и LastWarEndTick входят в хеш.
                 w.CoreRW[w.Nations[0].Capital] = 2;
                 ulong h4 = sim.ComputeHash();
                 Assert.AreNotEqual(h3, h4);
@@ -126,7 +126,7 @@ namespace BattlePix.Core.Tests
                     h4 = hc;
                 }
                 var n0 = w.NationsRW[0];
-                n0.OwnWarEndTick = 5;
+                n0.LastWarEndTick = 5;
                 w.NationsRW[0] = n0;
                 Assert.AreNotEqual(h4, sim.ComputeHash());
             }

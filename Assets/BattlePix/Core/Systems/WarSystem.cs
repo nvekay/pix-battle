@@ -51,7 +51,7 @@ namespace BattlePix.Core
         NotTheirLand = 1,
         /// <summary>Центр дальше claimMaxDepth от общей границы.</summary>
         TooFar = 2,
-        /// <summary>Круг задевает CapitalCover противника.</summary>
+        /// <summary>В круг попадает пиксель столицы противника (правка 02b: зона столицы ×3 не запрещает, только сама столица).</summary>
         TouchesCapital = 3,
         /// <summary>Их исконной суши в круге меньше claimMinPixels.</summary>
         TooSmall = 4,
@@ -115,7 +115,8 @@ namespace BattlePix.Core
             total = 0;
             if (p < 0 || p >= w.PixelCount || w.Owner[p] != target || w.Core[p] != target) return ClaimCheck.NotTheirLand;
             if (!NearBorder(w, self, target, p, w.Rules.War.ClaimMaxDepth)) return ClaimCheck.TooFar;
-            if (TouchesCapital(w, target, p)) return ClaimCheck.TouchesCapital;
+            int cap = w.Nation((byte)target).Capital;
+            if (cap >= 0 && InCircle(w, p, cap)) return ClaimCheck.TouchesCapital;
             total = CountCircle(w, p, target, 0);
             if (total < w.Rules.War.ClaimMinPixels) return ClaimCheck.TooSmall;
             return ClaimCheck.Ok;
@@ -146,29 +147,9 @@ namespace BattlePix.Core
             return false;
         }
 
-        static bool TouchesCapital(World w, int target, int center)
-        {
-            int r = w.Rules.War.ClaimRadius, width = w.Width, height = w.Height;
-            int cx = center % width, cy = center / width;
-            int bit = 1 << (target - 1);
-            var cover = w.CapitalCoverRW;
-            for (int dy = -r; dy <= r; dy++)
-            {
-                int y = cy + dy;
-                if (y < 0 || y >= height) continue;
-                for (int dx = -r; dx <= r; dx++)
-                {
-                    int x = cx + dx;
-                    if (x < 0 || x >= width || dx * dx + dy * dy > r * r) continue;
-                    if ((cover[y * width + x] & bit) != 0) return true;
-                }
-            }
-            return false;
-        }
-
         /// <summary>
-        /// Центр района для ИИ (02b §4.9): пограничные пиксели пары на стороне c по возрастанию индекса, медианный,
-        /// сдвиг до claimRadius шагов Брезенхэма к столице c, пока пиксель принадлежит c. Не прошёл проверку — −1.
+        /// Центр района для ИИ (02b §4.9, правка): пограничные пиксели пары на стороне c по возрастанию индекса, каждый 4-й —
+        /// кандидат; из допустимых — самый дальний от столицы c (при равенстве меньший индекс). Допустимых нет — −1.
         /// </summary>
         public static int SuggestClaimCenter(World w, byte self, byte c)
         {
@@ -191,25 +172,20 @@ namespace BattlePix.Core
             }
             if (list.Count == 0) return -1;
             list.Sort();
-            int p = list[list.Count / 2];
             int cap = w.Nation(c).Capital;
-            if (cap >= 0)
+            int capX = cap >= 0 ? cap % width : 0, capY = cap >= 0 ? cap / width : 0;
+            int best = -1;
+            long bestD = -1;
+            for (int i = 0; i < list.Count; i += 4)
             {
-                int x = p % width, y = p / width, x1 = cap % width, y1 = cap / width;
-                int dx = x1 > x ? x1 - x : x - x1, dy = y1 > y ? y1 - y : y - y1;
-                int sx = x < x1 ? 1 : -1, sy = y < y1 ? 1 : -1, err = dx - dy;
-                for (int step = 0; step < w.Rules.War.ClaimRadius && (x != x1 || y != y1); step++)
-                {
-                    int nx = x, ny = y, e2 = 2 * err;
-                    if (e2 > -dy) { err -= dy; nx += sx; }
-                    if (e2 < dx) { err += dx; ny += sy; }
-                    if (owner[ny * width + nx] != c) break;
-                    x = nx;
-                    y = ny;
-                }
-                p = y * width + x;
+                int q = list[i];
+                long dx = q % width - capX, dy = q / width - capY, d2 = dx * dx + dy * dy;
+                if (d2 <= bestD) continue;
+                if (CheckClaim(w, self, c, q, out _) != ClaimCheck.Ok) continue;
+                bestD = d2;
+                best = q;
             }
-            return CheckClaim(w, self, c, p, out _) == ClaimCheck.Ok ? p : -1;
+            return best;
         }
 
         // ---------- команды (02b §3.3) ----------
@@ -458,9 +434,13 @@ namespace BattlePix.Core
                 w.FrontOrderRW[(att - 1) * n + (def - 1)] = Orders.Defend;
                 w.FrontOrderRW[(def - 1) * n + (att - 1)] = Orders.Defend;
 
-                var an = w.NationsRW[att - 1];
-                an.OwnWarEndTick = w.Tick;
-                w.NationsRW[att - 1] = an;
+                // Часы повода (правка 02b): война кончилась у обеих сторон.
+                foreach (byte side in new[] { att, def })
+                {
+                    var sn = w.NationsRW[side - 1];
+                    sn.LastWarEndTick = w.Tick;
+                    w.NationsRW[side - 1] = sn;
+                }
 
                 WarOutcome outcome = kind == PeaceKinds.Claims ? WarOutcome.Claims
                     : kind == PeaceKinds.Reparations ? WarOutcome.Reparations
@@ -501,12 +481,9 @@ namespace BattlePix.Core
                         Tick = w.Tick, Kind = WarEventKind.EndedByDeath, A = war.Attacker, D = def, Goal = war.Goal,
                         Outcome = WarOutcome.NationDied, Value = d,
                     });
-                    if (war.Attacker == x)
-                    {
-                        var s = w.NationsRW[x - 1];
-                        s.OwnWarEndTick = w.Tick;
-                        w.NationsRW[x - 1] = s;
-                    }
+                    var s = w.NationsRW[x - 1];
+                    s.LastWarEndTick = w.Tick;
+                    w.NationsRW[x - 1] = s;
                 }
                 w.WarsRW[idx] = new War { ClaimCenter = -1 };
                 w.ClaimHeldLenRW[idx] = 0;

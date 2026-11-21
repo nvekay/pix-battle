@@ -61,8 +61,8 @@ namespace BattlePix.Core
         public int RecruitedInfDiv;
         public int RecruitedArmorDiv;
         public int DivisionsLost;
-        /// <summary>Тик конца последней войны, которую нация начала (02b §4.9, idleWarTicks); 0 — не было. Входит в хеш.</summary>
-        public int OwnWarEndTick;
+        /// <summary>Тик конца последней войны нации — любой, и своей, и где она оборонялась (02b §4.9, idleWarTicks); 0 — не было. Входит в хеш.</summary>
+        public int LastWarEndTick;
     }
 
     /// <summary>Статус пары наций (спека 02b §3.2).</summary>
