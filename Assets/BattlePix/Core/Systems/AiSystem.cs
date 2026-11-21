@@ -192,7 +192,7 @@ namespace BattlePix.Core
                 for (int k = 0; k < 4; k++)
                 {
                     if (!Grid.Neighbour(p, edge, k, W, out int q)) continue;
-                    if (Terrain[q] == (byte)Core.Terrain.Land && Owner[q] == Enemy)
+                    if (Terrain[q] != (byte)Core.Terrain.Water && Owner[q] == Enemy)
                     {
                         Result.Add(p);
                         break;

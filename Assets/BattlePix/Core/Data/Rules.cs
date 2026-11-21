@@ -199,6 +199,9 @@ namespace BattlePix.Core
         [JsonProperty("startRadius")] public int StartRadius = 8;
         [JsonProperty("mapRetries")] public int MapRetries = 8;
         [JsonProperty("capitalRetries")] public int CapitalRetries = 16;
+        /// <summary>Доля суши под холмами и горами (спека 01b §5.7): горы — самые высокие, холмы — следующие.</summary>
+        [JsonProperty("hillsShare_bp")] public int HillsShare_bp = 2500;
+        [JsonProperty("mountainsShare_bp")] public int MountainsShare_bp = 1000;
 
         internal void Validate()
         {
@@ -213,6 +216,8 @@ namespace BattlePix.Core
             Rules.Require(StartFairnessMax_bp >= 10000, "rules.mapgen", "startFairnessMax_bp must be >= 10000");
             Rules.Require(StartRadius >= 0, "rules.mapgen", "startRadius must be >= 0");
             Rules.Require(MapRetries >= 1 && CapitalRetries >= 1, "rules.mapgen", "retries must be >= 1");
+            Rules.Require(HillsShare_bp >= 0 && MountainsShare_bp >= 0 && HillsShare_bp + MountainsShare_bp <= 9000,
+                "rules.mapgen", "hillsShare_bp + mountainsShare_bp must be in 0..9000 (plains are needed for capitals)");
         }
     }
 

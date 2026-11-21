@@ -40,10 +40,10 @@ namespace BattlePix.Core
         /// <summary>Пограничный: суша, и хотя бы один сосед — суша с другим владельцем (включая ничью землю).</summary>
         public static bool IsFrontier(int p, NativeArray<byte> owner, NativeArray<byte> terrain, NativeArray<byte> edgeMask, int w)
         {
-            if (terrain[p] != (byte)Terrain.Land) return false;
+            if (terrain[p] == (byte)Terrain.Water) return false;
             byte o = owner[p], edge = edgeMask[p];
             for (int k = 0; k < 4; k++)
-                if (Neighbour(p, edge, k, w, out int q) && terrain[q] == (byte)Terrain.Land && owner[q] != o)
+                if (Neighbour(p, edge, k, w, out int q) && terrain[q] != (byte)Terrain.Water && owner[q] != o)
                     return true;
             return false;
         }
@@ -367,13 +367,13 @@ namespace BattlePix.Core
 
         int Land(int t, byte edge, int k)
         {
-            if (!Grid.Neighbour(t, edge, k, W, out int q) || Terrain[q] != (byte)Core.Terrain.Land) return -1;
+            if (!Grid.Neighbour(t, edge, k, W, out int q) || Terrain[q] == (byte)Core.Terrain.Water) return -1;
             return Owner[q];
         }
 
         byte Decide(int t)
         {
-            if (Terrain[t] != (byte)Core.Terrain.Land) return 0;
+            if (Terrain[t] == (byte)Core.Terrain.Water) return 0;
             int d = Owner[t];
             int flags = 0;
             if (d != 0)
@@ -542,7 +542,7 @@ namespace BattlePix.Core
 
         void Edge(int a, int q)
         {
-            if (Terrain[q] != (byte)Core.Terrain.Land) return;
+            if (Terrain[q] == (byte)Core.Terrain.Water) return;
             int b = Owner[q];
             if (b == a) return;
             FrontLen[a * Stride + b]++;

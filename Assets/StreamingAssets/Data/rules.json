@@ -13,7 +13,9 @@
     "startFairnessMax_bp": 25000,
     "startRadius": 8,
     "mapRetries": 8,
-    "capitalRetries": 16
+    "capitalRetries": 16,
+    "hillsShare_bp": 2500,
+    "mountainsShare_bp": 1000
   },
   "front": {
     "expandChance_bp": 70,

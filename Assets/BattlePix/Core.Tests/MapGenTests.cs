@@ -38,8 +38,17 @@ namespace BattlePix.Core.Tests
 
         static void CheckWorld(World w, ulong seed)
         {
-            int n = w.PixelCount, land = 0;
-            for (int i = 0; i < n; i++) if (w.IsLand(i)) land++;
+            int n = w.PixelCount, land = 0, hills = 0, mountains = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (w.IsLand(i)) land++;
+                if (w.Terrain[i] == (byte)Terrain.Hills) hills++;
+                if (w.Terrain[i] == (byte)Terrain.Mountains) mountains++;
+                Assert.LessOrEqual(w.Terrain[i], (byte)Terrain.Mountains, $"seed {seed}: unknown terrain at {i}");
+            }
+            // Спека 01b, acceptance 3: горы 9–11%, холмы 24–26% суши.
+            Assert.That((long)mountains * 10000 / land, Is.InRange(900, 1100), $"seed {seed}: mountains share");
+            Assert.That((long)hills * 10000 / land, Is.InRange(2400, 2600), $"seed {seed}: hills share");
             Assert.AreEqual(land, w.TotalLand, $"seed {seed}: TotalLand");
             long share = (long)land * 10000 / n;
             Assert.That(share, Is.InRange(4500, 4900), $"seed {seed}: land share {share} bp");
@@ -59,6 +68,7 @@ namespace BattlePix.Core.Tests
                 Assert.AreEqual(1, nat.Alive);
                 Assert.IsTrue(caps.Add(nat.Capital), $"seed {seed}: duplicate capital");
                 Assert.IsTrue(w.IsLand(nat.Capital), $"seed {seed}: capital on water");
+                Assert.AreNotEqual((byte)Terrain.Mountains, w.Terrain[nat.Capital], $"seed {seed}: capital {nat.Id} in mountains");
                 Assert.AreEqual(nat.Id, w.Owner[nat.Capital], $"seed {seed}: capital not owned");
                 Assert.GreaterOrEqual(WaterDistanceSq(w, nat.Capital), 36, $"seed {seed}: capital {nat.Id} closer than 6 px to water");
                 Assert.AreEqual(pixels[nat.Id], nat.Pixels, $"seed {seed}: Pixels of {nat.Id}");
@@ -146,6 +156,38 @@ namespace BattlePix.Core.Tests
                     TestUtil.Run(sim, 50);
                 }
             }
+        }
+
+        /// <summary>Рельеф не трогает воду и сушу: меняются только значения суши, по порогам корзин.</summary>
+        [Test]
+        public void Relief_KeepsLandMask_AndOrdersBandsByHeight()
+        {
+            var mg = new MapGenRules { HillsShare_bp = 2500, MountainsShare_bp = 1000 };
+            int n = 4000;
+            var bin = new int[n];
+            var land = new byte[n];
+            var rng = new Pcg32(5, 1);
+            int count = 0;
+            for (int i = 0; i < n; i++)
+            {
+                bin[i] = rng.NextInt(1024);
+                land[i] = bin[i] >= 300 ? (byte)Terrain.Land : (byte)Terrain.Water;
+                if (land[i] != 0) count++;
+            }
+            var before = (byte[])land.Clone();
+            MapGenerator.Relief(mg, bin, land, count);
+            int maxPlain = -1, minHill = int.MaxValue, maxHill = -1, minMountain = int.MaxValue, m = 0, h = 0;
+            for (int i = 0; i < n; i++)
+            {
+                Assert.AreEqual(before[i] == 0, land[i] == 0, $"pixel {i}: land mask changed");
+                if (land[i] == (byte)Terrain.Land) maxPlain = System.Math.Max(maxPlain, bin[i]);
+                if (land[i] == (byte)Terrain.Hills) { h++; minHill = System.Math.Min(minHill, bin[i]); maxHill = System.Math.Max(maxHill, bin[i]); }
+                if (land[i] == (byte)Terrain.Mountains) { m++; minMountain = System.Math.Min(minMountain, bin[i]); }
+            }
+            Assert.Less(maxPlain, minHill);
+            Assert.Less(maxHill, minMountain);
+            Assert.That((long)m * 10000 / count, Is.InRange(990, 1100));
+            Assert.That((long)(m + h) * 10000 / count, Is.InRange(3490, 3600));
         }
 
         [Test]

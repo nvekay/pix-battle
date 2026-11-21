@@ -21,7 +21,10 @@ namespace BattlePix.Core
     public enum Terrain : byte
     {
         Water = 0,
+        /// <summary>Равнина. Суша — это всё, что не Water: проверять terrain != Water.</summary>
         Land = 1,
+        Hills = 2,
+        Mountains = 3,
     }
 
     public struct NationState
@@ -187,7 +190,7 @@ namespace BattlePix.Core
         public int Index(int x, int y) => y * Width + x;
         public bool InMap(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
 
-        public bool IsLand(int index) => _terrain[index] == (byte)Core.Terrain.Land;
+        public bool IsLand(int index) => _terrain[index] != (byte)Core.Terrain.Water;
 
         public NationState Nation(byte id) => _nations[id - 1];
 
