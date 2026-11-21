@@ -20,6 +20,9 @@ namespace BattlePix.Game
         /// <summary>Родительный: -ые/-ие → -ых/-их.</summary>
         public string Genitive(int id) => Inflect(Nominative(id), "ых", "их");
 
+        /// <summary>Творительный: -ые/-ие → -ыми/-ими («фронт с Синими»).</summary>
+        public string Instrumental(int id) => Inflect(Nominative(id), "ыми", "ими");
+
         static string Inflect(string s, string y, string i)
         {
             if (s.EndsWith("ые")) return s.Substring(0, s.Length - 2) + y;

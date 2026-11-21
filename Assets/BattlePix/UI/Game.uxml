@@ -22,19 +22,25 @@
             <ui:Button name="btn-save" class="btn" text="Сохранить реплей" />
         </ui:VisualElement>
         <ui:VisualElement name="map-area" class="map-area">
+            <ui:VisualElement name="markers" class="markers" picking-mode="Ignore" />
             <ui:Label name="pixel-info" class="panel pixel-info hidden" text="" />
-            <ui:Label name="tip" class="panel tip hidden" text="" />
         </ui:VisualElement>
-        <ui:VisualElement name="mode-bar" class="bar mode-bar hidden">
-            <ui:Label name="mode-text" class="mode-text" text="" />
-            <ui:Button name="btn-confirm" class="btn btn-confirm" text="Подтвердить" />
-            <ui:Button name="btn-cancel" class="btn" text="Отмена" />
+        <ui:VisualElement name="fronts-panel" class="side-panel">
+            <ui:Label class="panel-title" text="Фронты" />
+            <ui:VisualElement name="fronts-list" class="fronts-list" />
+            <ui:Label name="fronts-empty" class="hint" text="Общих границ пока нет" />
         </ui:VisualElement>
-        <ui:VisualElement name="actions" class="bar bottom-bar">
-            <ui:Button name="btn-recruit" class="btn action" text="Батальон 200" />
-            <ui:Button name="btn-fort" class="btn action" text="Крепость 400" />
-            <ui:Button name="btn-strike" class="btn action" text="Удар" />
+        <ui:VisualElement name="formations-panel" class="bottom-panel">
+            <ui:VisualElement class="formations-bar">
+                <ui:Label class="panel-title" text="Соединения" />
+                <ui:Button name="btn-new-hq" class="btn" text="Новый штаб 300 + П 150" />
+                <ui:Button name="btn-new-type" class="btn" text="П" />
+                <ui:Button name="btn-rear" class="btn" text="В тыл" />
+                <ui:Label name="assign-hint" class="hint" text="" />
+            </ui:VisualElement>
+            <ui:ScrollView name="formations-list" class="formations-list" mode="Horizontal" />
         </ui:VisualElement>
+        <ui:Label name="tip" class="panel tip hidden" text="" />
         <ui:Label name="toast" class="toast hidden" text="" />
         <ui:VisualElement name="end-screen" class="end-screen hidden">
             <ui:VisualElement class="end-box">

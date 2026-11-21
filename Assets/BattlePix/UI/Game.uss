@@ -1,4 +1,4 @@
-/* Только тап: никаких :hover-подсказок. Все цели нажатия ≥ 44×44 единиц PanelSettings. */
+/* UI под ПК (спека 01b §10): мышь, подсказки по наведению разрешены, причина отказа видна и по клику. */
 .root {
     flex-grow: 1;
     flex-direction: column;
@@ -83,7 +83,7 @@
     white-space: normal;
 }
 .tip {
-    bottom: 8px;
+    bottom: 240px;
     left: 0;
     right: 0;
     margin: 0 auto;
@@ -120,3 +120,84 @@
 .end-text { font-size: 18px; color: rgb(220, 220, 220); margin-top: 8px; }
 .end-buttons { flex-direction: row; margin-top: 16px; }
 .hidden { display: none; }
+
+/* ---------- 01b: панели фронтов и соединений ---------- */
+.markers { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+.marker {
+    position: absolute;
+    padding: 1px 5px;
+    font-size: 14px;
+    color: rgb(255, 255, 255);
+    background-color: rgba(20, 40, 80, 0.9);
+    border-width: 1px;
+    border-color: rgb(255, 255, 255);
+    border-radius: 3px;
+    -unity-font-style: bold;
+}
+.marker.attack { background-color: rgba(150, 40, 30, 0.92); }
+.marker.empty { background-color: rgba(120, 110, 30, 0.92); color: rgb(255, 245, 200); }
+.side-panel {
+    position: absolute;
+    right: 8px;
+    top: 64px;
+    width: 450px;
+    padding: 6px;
+    background-color: rgba(10, 14, 18, 0.88);
+    border-radius: 4px;
+}
+.panel-title { color: rgb(255, 255, 255); font-size: 18px; -unity-font-style: bold; margin: 2px 6px 6px 2px; -unity-text-align: middle-left; }
+.hint { color: rgb(170, 175, 180); font-size: 14px; margin: 2px 6px; -unity-text-align: middle-left; white-space: normal; }
+.front-row {
+    flex-direction: row;
+    align-items: center;
+    min-height: 40px;
+    padding: 2px 4px;
+    margin-bottom: 3px;
+    background-color: rgba(40, 46, 52, 0.9);
+    border-radius: 3px;
+    border-width: 2px;
+    border-color: rgba(0, 0, 0, 0);
+}
+.front-row.selected { border-color: rgb(255, 255, 255); }
+.front-row.drop-target { border-color: rgb(110, 170, 240); }
+.swatch { width: 14px; height: 28px; margin-right: 6px; border-radius: 2px; }
+.front-name { color: rgb(240, 240, 240); font-size: 15px; width: 100px; -unity-text-align: middle-left; }
+.front-cell { color: rgb(215, 215, 215); font-size: 14px; margin: 0 4px; -unity-text-align: middle-left; }
+.terrain-strip { flex-direction: row; width: 54px; min-width: 54px; height: 10px; margin: 0 4px; flex-shrink: 0; }
+.terrain-plain { background-color: rgb(140, 190, 110); }
+.terrain-hills { background-color: rgb(180, 150, 90); }
+.terrain-mountains { background-color: rgb(140, 140, 150); }
+.order-icon { font-size: 14px; width: 70px; -unity-text-align: middle-left; }
+.order-attack { color: rgb(255, 130, 110); }
+.order-hold { color: rgb(150, 200, 255); }
+.order-empty { color: rgb(240, 210, 90); }
+.bottom-panel {
+    position: absolute;
+    left: 8px;
+    right: 466px;
+    bottom: 8px;
+    padding: 6px;
+    background-color: rgba(10, 14, 18, 0.88);
+    border-radius: 4px;
+}
+.formations-bar { flex-direction: row; align-items: center; flex-wrap: wrap; }
+.formations-list { min-height: 170px; }
+.formations-list > .unity-scroll-view__content-viewport > .unity-scroll-view__content-container { flex-direction: row; }
+.card {
+    width: 210px;
+    padding: 6px;
+    margin: 4px;
+    background-color: rgba(40, 46, 52, 0.95);
+    border-radius: 4px;
+    border-width: 2px;
+    border-color: rgba(0, 0, 0, 0);
+}
+.card.selected { border-color: rgb(255, 255, 255); }
+.card-title { color: rgb(255, 255, 255); font-size: 16px; -unity-font-style: bold; }
+.card-text { color: rgb(215, 215, 215); font-size: 14px; white-space: normal; }
+.bar-bg { height: 8px; margin: 4px 0; background-color: rgb(60, 64, 70); }
+.bar-fill { height: 8px; background-color: rgb(110, 190, 110); }
+.bar-fill.low { background-color: rgb(220, 110, 80); }
+.card-row { flex-direction: row; }
+.card .btn { min-height: 32px; min-width: 32px; font-size: 14px; padding: 0 6px; margin: 2px; flex-grow: 1; }
+.front-plate { left: 16px; top: 600px; max-width: 1000px; }
