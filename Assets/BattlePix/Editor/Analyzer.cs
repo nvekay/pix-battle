@@ -11,7 +11,9 @@ namespace BattlePix.Editor
     /// <summary>
     /// -analyze &lt;реплей&gt;: машинная половина метрики ворот 1 по партии человека.
     /// Проигрывает реплей с текущими правилами и считает: исход и минуту, принятые команды по типам,
-    /// решения за первые 10 минут. Фокус-эпизоды и состав под рельеф — PR 3 переделки (спека 01b §8).
+    /// решения за первые 10 минут (цель ≥ 10), фокус-эпизоды — отрезки ≥ 30 с, когда соединение человека наступало на одном
+    /// фронте, а другой существующий фронт стоял в обороне или пустой (цель ≥ 1), и наборы под рельеф — броня при доле
+    /// равнины фронта соединения ≥ 60%, пехота при ≤ 40% (цель ≥ 1). Метрика ворот 1 выполнена, если ≥ 1 по любой из двух.
     /// </summary>
     public static class Analyzer
     {
@@ -23,6 +25,9 @@ namespace BattlePix.Editor
             public bool Finished;
             public Dictionary<CommandType, int> Accepted = new Dictionary<CommandType, int>();
             public int DecisionsFirst10Min;
+            public List<string> FocusEpisodes = new List<string>();
+            public int ArmorOnPlains, InfantryOffPlains;
+            public bool Gate => FocusEpisodes.Count >= 1 || ArmorOnPlains + InfantryOffPlains >= 1;
             public List<string> Timeline = new List<string>();
         }
 
@@ -35,7 +40,7 @@ namespace BattlePix.Editor
             string dir = outDir ?? Path.GetDirectoryName(path);
             Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, "analysis.md"), md);
-            log($"analysis -> {Path.Combine(dir, "analysis.md")}: decisions in first 10 min {r.DecisionsFirst10Min} (goal >= 10)");
+            log($"analysis -> {Path.Combine(dir, "analysis.md")}: decisions in first 10 min {r.DecisionsFirst10Min} (goal >= 10), focus episodes {r.FocusEpisodes.Count}, terrain recruits {r.ArmorOnPlains + r.InfantryOffPlains}");
             return 0;
         }
 
@@ -49,9 +54,16 @@ namespace BattlePix.Editor
             using (var sim = new Simulation(config, rules, replay.Seed, replay.TickLimit, replay.Human))
             {
                 var w = sim.World;
-                int next = 0;
+                int next = 0, focusStart = -1;
                 while (w.Tick < replay.Ticks && !w.IsOver)
                 {
+                    if (w.Tick % tps == 0 && w.Nation(h).Alive != 0)
+                    {
+                        HeadlessRunner.FocusState(w, h, out _, out bool focus);
+                        if (focus && focusStart < 0) focusStart = w.Tick;
+                        if (!focus && focusStart >= 0) CloseEpisode(res, focusStart, w.Tick, tps);
+                        if (!focus) focusStart = -1;
+                    }
                     while (next < commands.Count && commands[next].Tick == w.Tick) sim.Enqueue(commands[next++]);
                     int tick = w.Tick;
                     sim.Step();
@@ -61,10 +73,22 @@ namespace BattlePix.Editor
                         res.Accepted.TryGetValue(c.Type, out int k);
                         res.Accepted[c.Type] = k + 1;
                         if (tick < 600 * tps) res.DecisionsFirst10Min++;
-                        res.Timeline.Add(string.Format(CultureInfo.InvariantCulture, "{0:0.0} мин — {1} {2}, {3}",
-                            tick / (60.0 * tps), Name(c.Type), c.A, c.B));
+                        string note = "";
+                        if (c.Type == CommandType.RecruitUnit && c.A >= 0)
+                        {
+                            var f = w.FormationAt(w.FormationSlot(h, c.A));
+                            if (f.Front != 0 && w.FrontLength(h, f.Front) > 0)
+                            {
+                                int plain = AiSystem.PlainShare(w, h, f.Front);
+                                if (c.B == UnitTypes.Armor && plain >= 6000) { res.ArmorOnPlains++; note = $" (броня, равнина фронта {plain / 100}%)"; }
+                                if (c.B == UnitTypes.Infantry && plain <= 4000) { res.InfantryOffPlains++; note = $" (пехота, равнина фронта {plain / 100}%)"; }
+                            }
+                        }
+                        res.Timeline.Add(string.Format(CultureInfo.InvariantCulture, "{0:0.0} мин — {1} {2}, {3}{4}",
+                            tick / (60.0 * tps), Name(c.Type), c.A, c.B, note));
                     }
                 }
+                if (focusStart >= 0) CloseEpisode(res, focusStart, w.Tick, tps);
                 res.Finished = w.IsOver;
                 res.Minute = w.Tick / (60.0 * tps);
                 res.Outcome = !w.IsOver ? "партия не доиграна"
@@ -72,6 +96,12 @@ namespace BattlePix.Editor
                     : $"поражение ({w.EndReason}, победитель {(w.Winner == 0 ? "—" : w.Winner.ToString())})";
             }
             return res;
+        }
+
+        static void CloseEpisode(Result res, int from, int to, int tps)
+        {
+            if (to - from < 30 * tps) return;
+            res.FocusEpisodes.Add(string.Format(CultureInfo.InvariantCulture, "{0:0.0}–{1:0.0} мин", from / (60.0 * tps), to / (60.0 * tps)));
         }
 
         static string Name(CommandType t) => t == CommandType.RecruitUnit ? "набор" : t == CommandType.AssignFormation ? "назначение" : "приказ";
@@ -87,6 +117,9 @@ namespace BattlePix.Editor
             sb.AppendLine("- Принятые команды: " + string.Join(", ", new[] { CommandType.RecruitUnit, CommandType.AssignFormation, CommandType.SetOrder }
                 .Select(t => $"{Name(t)} {(r.Accepted.TryGetValue(t, out var k) ? k : 0)}")));
             sb.AppendLine($"- Решений за первые 10 минут: {r.DecisionsFirst10Min} (цель ≥ 10: {(r.DecisionsFirst10Min >= 10 ? "ок" : "провал")})");
+            sb.AppendLine($"- Фокус-эпизоды (≥ 30 с): {r.FocusEpisodes.Count}" + (r.FocusEpisodes.Count > 0 ? " — " + string.Join(", ", r.FocusEpisodes) : ""));
+            sb.AppendLine($"- Состав под рельеф: броня на равнине {r.ArmorOnPlains}, пехота вне равнины {r.InfantryOffPlains}");
+            sb.AppendLine($"- Метрика ворот 1 (≥ 1 фокус-эпизод или набор под рельеф): {(r.Gate ? "ок" : "провал")}");
             sb.AppendLine();
             sb.AppendLine("## Решения");
             sb.AppendLine();
