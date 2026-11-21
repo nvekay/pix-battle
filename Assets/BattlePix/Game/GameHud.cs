@@ -8,10 +8,12 @@ using UnityEngine.UIElements;
 namespace BattlePix.Game
 {
     /// <summary>
-    /// Интерфейс партии (спека 02a §9, ПК): карточка нации, HUD группами, «Фронты», плашка фронта с выноской,
-    /// «Соединения», сводка, значки штабов на карте, клавиши. Только читает мир между тиками и отдаёт команды
-    /// человека через EnqueueFromUi. Числа ядра переводятся в слова, сырые — в подсказки по наведению.
-    /// Назначение: клик по карточке выделяет соединение, потом клик по строке фронта, по соседу на карте или «В тыл».
+    /// Интерфейс партии (спека 02a §9, ПК; армия — спека 01c §9): карточка нации, HUD группами, «Фронты» с переключателем
+    /// приказа, плашка фронта с выноской, панель «Дивизии» (плитки по группам), сводка, значки фронтов на карте, клавиши.
+    /// Только читает мир между тиками и отдаёт команды человека через EnqueueFromUi. Числа ядра переводятся в слова,
+    /// сырые — в подсказки по наведению.
+    /// Назначение: выделить плитки (клик, Shift-клик, рамка, двойной клик по заголовку группы, A — весь тыл), потом клик
+    /// по строке фронта, по соседу на карте или «В тыл». На каждую выделенную дивизию — своя AssignDivision в один тик, по k.
     /// </summary>
     public sealed class GameHud
     {
@@ -23,6 +25,9 @@ namespace BattlePix.Game
             "budget", "army", "armor", "infantry", "hq", "attack", "defend", "frontOpen", "capital", "territory", "time",
             "pause", "play", "plains", "hills", "mountains", "urgent", "loss", "report", "rear",
         };
+
+        // Группы панели «Дивизии»: служебные ключи; фронт — id противника (> 0).
+        const int GroupTraining = -3, GroupRear = -2, GroupTransit = -1;
 
         readonly VisualElement _root;
         readonly Rules _rules;
@@ -43,19 +48,22 @@ namespace BattlePix.Game
         readonly Label _budget, _budgetDelta, _army, _armyDelta, _timer, _landShare, _leaderLabel, _goalLabel;
         readonly VisualElement _landBar, _landFill, _landGoal, _landLeader;
         readonly Label _tip, _assignHint, _frontsEmpty, _frontsHint;
-        readonly VisualElement _frontsList, _markers, _feed, _mapArea;
-        readonly ScrollView _formationsList;
-        readonly Button _btnNewHq, _btnNewType, _btnRear;
+        readonly VisualElement _frontsList, _markers, _feed, _mapArea, _divPanel, _band;
+        readonly ScrollView _divList;
+        readonly Button _btnInf, _btnArmor, _btnRear;
+        readonly Label _btnInfText, _btnArmorText;
 
         // Плашка фронта.
         readonly VisualElement _plate, _plateThemRow, _plateCapitalRow, _plateUsIcon, _plateThemIcon, _platePointer;
         readonly Label _plateTitle, _plateUs, _plateThem, _platePlains, _plateHills, _plateMountains, _plateCapital, _plateVerdict;
 
         FrontRow[] _rows;
-        Card[] _cards;
-        Marker[] _hq;
-        byte _newType = DivisionTypes.Infantry;
-        int _selected = -1;     // выделенная дивизия k, −1 — нет
+        Tile[] _tiles;
+        readonly Dictionary<int, Group> _groups = new Dictionary<int, Group>();
+        readonly List<int> _groupOrder = new List<int>();
+        Marker[] _marks;
+        bool[] _sel;            // выделенные дивизии по k
+        int _lastClicked = -1;  // для Tab
         int _plateFront;        // сосед, чья плашка открыта; 0 — закрыта
         float _nextMarkers;
         float _tipHideAt;
@@ -63,9 +71,13 @@ namespace BattlePix.Game
         VisualElement _hoverOwner;
         float _hoverSince;
 
+        // Рамка выделения в панели «Дивизии».
+        bool _banding;
+        Vector2 _bandStart;
+        bool _bandAdd;
+
         // Состояние прошлой проверки для сводки.
-        bool[] _prevAlive, _prevContact, _prevAttacked, _prevBled;
-        byte[] _prevFront;
+        bool[] _prevAlive, _prevContact, _prevAttacked, _prevExhausted, _prevTraining;
         int[] _lastCapital;
 
         const int MaxFeed = 3;
@@ -85,18 +97,25 @@ namespace BattlePix.Game
         {
             public VisualElement Root, Order, Us, Them, Plain, Hills, Mountains;
             public Label Name, Verdict;
+            public Button Attack, Defend;
         }
 
-        sealed class Card
+        sealed class Tile
         {
-            public VisualElement Root, Fill;
-            public Label Title, Inf, Armor, Where, AddInfText, AddArmorText;
-            public Button Attack, Defend, AddInf, AddArmor;
+            public VisualElement Root, Icon, StrFill, OrgFill, Pause;
+            public Label Num, Timer;
+            public int Group = int.MinValue;
+        }
+
+        sealed class Group
+        {
+            public VisualElement Root, Body;
+            public Label Header;
         }
 
         sealed class Marker
         {
-            public VisualElement Root, Icon;
+            public VisualElement Root, Icon, OrgFill;
             public Label Count;
             public Vector2Int? Cell;
         }
@@ -134,10 +153,14 @@ namespace BattlePix.Game
             _markers = root.Q<VisualElement>("markers");
             _feed = root.Q<VisualElement>("feed");
             _mapArea = root.Q<VisualElement>("map-area");
-            _formationsList = root.Q<ScrollView>("formations-list");
-            _btnNewHq = root.Q<Button>("btn-new-hq");
-            _btnNewType = root.Q<Button>("btn-new-type");
+            _divPanel = root.Q<VisualElement>("divisions-panel");
+            _divList = root.Q<ScrollView>("divisions-list");
+            _band = root.Q<VisualElement>("select-band");
+            _btnInf = root.Q<Button>("btn-new-inf");
+            _btnArmor = root.Q<Button>("btn-new-armor");
             _btnRear = root.Q<Button>("btn-rear");
+            _btnInfText = _btnInf.Q<Label>(className: "btn-text");
+            _btnArmorText = _btnArmor.Q<Label>(className: "btn-text");
 
             _plate = root.Q<VisualElement>("front-plate");
             _plateTitle = root.Q<Label>("plate-title");
@@ -172,19 +195,22 @@ namespace BattlePix.Game
             _goalLabel.text = $"{_rules.End.VictoryShare_bp / 100}% победа";
             _tip.RegisterCallback<PointerDownEvent>(_ => _tip.AddToClassList("hidden"));
 
-            Bind(_btnNewHq, () => RecruitReason(_newType), () => _rules.DivisionCost(_newType),
-                () => _sim.EnqueueFromUi(CommandType.RecruitDivision, Human, _newType, 0), "Набрать дивизию: готова через 30 с");
-            _btnNewType.clicked += () =>
-            {
-                _newType = _newType == DivisionTypes.Infantry ? DivisionTypes.Armor : DivisionTypes.Infantry;
-                Refresh();
-            };
-            Bind(_btnRear, RearReason, () => 0, () =>
-            {
-                _sim.EnqueueFromUi(CommandType.AssignDivision, Human, _selected, 0);
-                Deselect();
-            }, "Отвести выделенную дивизию в тыл (R)");
+            Bind(_btnInf, () => RecruitReason(DivisionTypes.Infantry), () => _rules.DivisionCost(DivisionTypes.Infantry),
+                () => _sim.EnqueueFromUi(CommandType.RecruitDivision, Human, DivisionTypes.Infantry, 0),
+                $"Пехотная дивизия: 3 пехотных батальона. Дёшево, держит холмы и горы. Готова через {TrainSeconds(DivisionTypes.Infantry)} с");
+            Bind(_btnArmor, () => RecruitReason(DivisionTypes.Armor), () => _rules.DivisionCost(DivisionTypes.Armor),
+                () => _sim.EnqueueFromUi(CommandType.RecruitDivision, Human, DivisionTypes.Armor, 0),
+                $"Танковая дивизия: 2 бронетанковых и 1 пехотный батальон. Рвёт равнину, вязнет в горах. Готова через {TrainSeconds(DivisionTypes.Armor)} с");
+            Bind(_btnRear, RearReason, () => 0, () => AssignSelected(0), "Отвести выделенные дивизии в тыл (R)");
+
+            // Рамка выделения: тянуть мышью по пустому месту панели «Дивизии».
+            _divList.RegisterCallback<PointerDownEvent>(OnBandDown, TrickleDown.NoTrickleDown);
+            _divPanel.RegisterCallback<PointerMoveEvent>(OnBandMove);
+            _divPanel.RegisterCallback<PointerUpEvent>(OnBandUp);
+            _divPanel.RegisterCallback<PointerDownEvent>(e => e.StopPropagation()); // клик по панели не уходит в карту
         }
+
+        int TrainSeconds(int type) => _rules.Divisions[type].TrainTicks / _config.TicksPerSecond;
 
         Sprite Icon(string name) => _atlas != null ? _atlas.Icon(name) : null;
 
@@ -208,26 +234,34 @@ namespace BattlePix.Game
         public void BeginMatch(Simulation sim)
         {
             _sim = sim;
-            int n = W.NationCount, maxF = W.MaxDivisionsPerNation;
+            int n = W.NationCount, maxK = W.MaxDivisionsPerNation;
             _frontsList.Clear();
-            _formationsList.Clear();
+            _divList.Clear();
             _markers.Clear();
             foreach (var f in _feedItems) f.Root.RemoveFromHierarchy();
             _feedItems.Clear();
             _rows = new FrontRow[n + 1];
             for (int d = 1; d <= n; d++)
                 if (d != Human) _rows[d] = MakeRow((byte)d);
-            _cards = new Card[maxF];
-            for (int k = 0; k < maxF; k++) _cards[k] = MakeCard(k);
-            _hq = new Marker[n + 1];
-            for (int d = 1; d <= n; d++) _hq[d] = MakeMarker();
-            _selected = -1;
+            _groups.Clear();
+            _groupOrder.Clear();
+            MakeGroup(GroupTraining, "Готовятся");
+            MakeGroup(GroupRear, "Тыл");
+            MakeGroup(GroupTransit, "В пути");
+            for (int d = 1; d <= n; d++)
+                if (d != Human) MakeGroup(d, _names.Nominative(d));
+            _tiles = new Tile[maxK];
+            for (int k = 0; k < maxK; k++) _tiles[k] = MakeTile(k);
+            _marks = new Marker[n + 1];
+            for (int d = 1; d <= n; d++) _marks[d] = MakeMarker();
+            _sel = new bool[maxK];
+            _lastClicked = -1;
             _plateFront = 0;
             _prevAlive = new bool[n + 1];
             _prevContact = new bool[n + 1];
             _prevAttacked = new bool[n + 1];
-            _prevBled = new bool[maxF];
-            _prevFront = new byte[maxF];
+            _prevExhausted = new bool[n + 1];
+            _prevTraining = new bool[maxK];
             _lastCapital = new int[n + 1];
             for (int d = 1; d <= n; d++)
             {
@@ -235,7 +269,7 @@ namespace BattlePix.Game
                 _prevContact[d] = Contact(d);
                 _lastCapital[d] = W.Nation((byte)d).Capital;
             }
-            for (int k = 0; k < maxF; k++) _prevFront[k] = W.DivisionAt(W.DivisionSlot(Human, k)).Front;
+            for (int k = 0; k < maxK; k++) _prevTraining[k] = W.Training(W.DivisionAt(W.DivisionSlot(Human, k)));
             _nextMarkers = 0;
             HidePanels();
             Refresh();
@@ -243,10 +277,18 @@ namespace BattlePix.Game
 
         bool Alive => W.Nation(Human).Alive != 0;
         bool Contact(int d) => d != Human && W.Nation((byte)d).Alive != 0 && W.FrontLength(Human, d) > 0;
+        Division Div(int k) => W.DivisionAt(W.DivisionSlot(Human, k));
+
+        int SelectedCount()
+        {
+            int c = 0;
+            for (int k = 0; k < _sel.Length; k++) if (_sel[k]) c++;
+            return c;
+        }
 
         // ---------- обновление ----------
 
-        /// <summary>Четыре раза в секунду: HUD, строки фронтов, карточки, плашка.</summary>
+        /// <summary>Четыре раза в секунду: HUD, строки фронтов, плитки, плашка.</summary>
         public void Refresh()
         {
             if (_sim == null) return;
@@ -281,16 +323,17 @@ namespace BattlePix.Game
             _frontsEmpty.style.display = fronts == 0 ? DisplayStyle.Flex : DisplayStyle.None;
             _frontsHint.style.display = fronts == 0 ? DisplayStyle.None : DisplayStyle.Flex;
 
-            for (int k = 0; k < _cards.Length; k++) UpdateCard(k);
-            if (_selected >= 0 && !GameCommands.OwnDivision(w, Human, _selected)) Deselect();
+            UpdateDivisions();
 
-            _btnNewHq.text = $"+ {(_newType == DivisionTypes.Armor ? "Танковая" : "Пехотная")} {Gold(_rules.DivisionCost(_newType))}";
-            _btnNewHq.EnableInClassList("disabled-look", RecruitReason(_newType) != RejectReason.None);
-            _btnNewType.text = _newType == DivisionTypes.Infantry ? "Пехотная" : "Танковая";
+            _btnInfText.text = $"+ Пехотная {Gold(_rules.DivisionCost(DivisionTypes.Infantry))}";
+            _btnArmorText.text = $"+ Танковая {Gold(_rules.DivisionCost(DivisionTypes.Armor))}";
+            _btnInf.EnableInClassList("disabled-look", RecruitReason(DivisionTypes.Infantry) != RejectReason.None);
+            _btnArmor.EnableInClassList("disabled-look", RecruitReason(DivisionTypes.Armor) != RejectReason.None);
             _btnRear.EnableInClassList("disabled-look", RearReason() != RejectReason.None);
-            _assignHint.text = _selected >= 0
-                ? $"{_selected + 1}-я выделена: клик по фронту справа или по соседу на карте · Q наступать · E оборона · R в тыл · ПКМ или Esc — отмена"
-                : "Клик по карточке выделяет дивизию · Tab — следующая";
+            int sel = SelectedCount();
+            _assignHint.text = sel > 0
+                ? $"Выделено {Divisions(sel)}: клик по фронту справа или по соседу на карте · R — в тыл · Esc — снять"
+                : "Клик, Shift-клик или рамка — выделить · двойной клик по группе — всю · A — весь тыл";
 
             if (_plateFront != 0)
             {
@@ -345,6 +388,32 @@ namespace BattlePix.Game
             them = (wa > 0 ? w.WeightedDefense(d, Human) : 0) + (ta > 0 ? ta : 0);
         }
 
+        /// <summary>Свои дивизии на фронте с d: на месте, в пути, средняя организация на месте, все наступающие выдохлись.</summary>
+        void FrontState(byte owner, byte d, out int onPlace, out int transit, out int armor, out int avgOrg, out bool exhausted)
+        {
+            var w = W;
+            onPlace = transit = armor = 0;
+            long org = 0;
+            int attackers = 0, tired = 0;
+            bool attackOrder = w.FrontOrderOf(owner, d) == Orders.Attack;
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(owner, k));
+                if (v.Alive == 0 || v.Front != d) continue;
+                if (!w.OnFront(v)) { transit++; continue; }
+                onPlace++;
+                if (v.Type == DivisionTypes.Armor) armor++;
+                org += v.Org_bp;
+                if (attackOrder)
+                {
+                    attackers++;
+                    if (v.Exhausted != 0) tired++;
+                }
+            }
+            avgOrg = onPlace > 0 ? (int)(org / onPlace) : 0;
+            exhausted = attackers > 0 && tired == attackers;
+        }
+
         void UpdateRow(byte d)
         {
             var w = W;
@@ -358,69 +427,115 @@ namespace BattlePix.Game
             r.Us.style.flexGrow = us;
             r.Them.style.flexGrow = them;
 
-            int order = OrderOnFront(d);
-            SetIcon(r.Order, order == 2 ? "attack" : order == 1 ? "defend" : order == 3 ? "time" : "frontOpen");
+            FrontState(Human, d, out int onPlace, out int transit, out _, out int avgOrg, out bool exhausted);
+            bool attackOrder = w.FrontOrderOf(Human, d) == Orders.Attack;
+            SetIcon(r.Order, onPlace > 0 ? (exhausted ? "pause" : attackOrder ? "attack" : "defend") : transit > 0 ? "time" : "frontOpen");
+            r.Attack.EnableInClassList("active", attackOrder);
+            r.Defend.EnableInClassList("active", !attackOrder);
 
             int net = w.NetFlips10s(Human, d);
-            r.Verdict.text = net > 0 ? $"берём ~{net} px" : net < 0 ? $"теряем ~{-net} px" : "стоим";
+            r.Verdict.text = net > 0 ? $"берём ~{net} px" : net < 0 ? $"теряем ~{-net} px" : exhausted ? "стоим — выдохлись" : "стоим";
             r.Verdict.EnableInClassList("good", net > 0);
             r.Verdict.EnableInClassList("bad", net < 0);
             r.Verdict.EnableInClassList("dim", net == 0);
-            string orderText = order == 2 ? "наступаем" : order == 1 ? "держим оборону" : order == 3 ? "дивизия в пути" : "фронт открыт: наших дивизий нет";
-            r.Root.tooltip = $"{_names.Nominative(d)}: {orderText}\nФронт {len} px · равнина {w.FrontTerrainLength(Human, d, 0)}, холмы {w.FrontTerrainLength(Human, d, 1)}, горы {w.FrontTerrainLength(Human, d, 2)}\n"
+            string orderText = onPlace > 0
+                ? (attackOrder ? (exhausted ? "наступаем, но все выдохлись — ждём организацию или свежие дивизии" : "наступаем") : "держим оборону")
+                : transit > 0 ? "дивизии в пути" : "фронт открыт: наших дивизий нет";
+            r.Root.tooltip = $"{_names.Nominative(d)}: {orderText}\nНаших дивизий на месте {onPlace}, в пути {transit}" + (onPlace > 0 ? $", организация {avgOrg / 100}%" : "")
+                             + $"\nФронт {len} px · равнина {w.FrontTerrainLength(Human, d, 0)}, холмы {w.FrontTerrainLength(Human, d, 1)}, горы {w.FrontTerrainLength(Human, d, 2)}\n"
                              + $"Наша атака A = {w.WeightedAttack(Human, d)}, их оборона D = {w.WeightedDefense(d, Human)}\n"
                              + $"Их атака {w.WeightedAttack(d, Human)}, наша оборона {w.WeightedDefense(Human, d)}\nСдвиг за 10 с: {(net >= 0 ? "+" : "−")}{Math.Abs(net)} px";
             r.Root.EnableInClassList("selected", _plateFront == d);
-            r.Root.EnableInClassList("drop-target", _selected >= 0);
+            r.Root.EnableInClassList("drop-target", SelectedCount() > 0);
         }
 
-        /// <summary>Наш приказ на фронте: 2 — наступаем, 1 — держим, 3 — только в пути, 0 — пусто.</summary>
-        int OrderOnFront(byte d)
+        /// <summary>Группа плитки: готовится, тыл, в пути или фронт.</summary>
+        int GroupOf(in Division v)
         {
             var w = W;
-            bool attack = false, hold = false, transit = false;
-            bool orderAttack = w.FrontOrderOf(Human, d) == Orders.Attack;
-            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
-            {
-                var v = w.DivisionAt(w.DivisionSlot(Human, k));
-                if (v.Alive == 0 || v.Front != d) continue;
-                if (!w.OnFront(v)) { transit = true; continue; }
-                if (orderAttack) attack = true;
-                else hold = true;
-            }
-            if (attack) return 2;
-            if (hold) return 1;
-            if (transit) return 3;
-            return 0;
+            if (w.Training(v)) return GroupTraining;
+            if (v.Front == 0) return GroupRear;
+            if (!w.OnFront(v)) return GroupTransit;
+            return v.Front;
         }
 
-        void UpdateCard(int k)
+        void UpdateDivisions()
         {
             var w = W;
-            var c = _cards[k];
-            var v = w.DivisionAt(w.DivisionSlot(Human, k));
-            bool alive = v.Alive != 0 && Alive;
-            c.Root.style.display = alive ? DisplayStyle.Flex : DisplayStyle.None;
-            if (!alive) return;
-            bool armor = v.Type == DivisionTypes.Armor;
-            c.Inf.text = armor ? "" : "пех.";
-            c.Armor.text = armor ? "танк." : "";
-            int str = v.Strength_bp;
-            c.Fill.style.width = Length.Percent(str / 100f);
-            c.Fill.EnableInClassList("low", str < 3000);
-            c.Fill.parent.tooltip = $"Численность {str / 100}% · организация {v.Org_bp / 100}%" + (v.Exhausted != 0 ? ", выдохлась" : "");
             int tps = _config.TicksPerSecond;
-            if (w.Training(v)) c.Where.text = $"готовится · {(v.ReadyTick - w.Tick + tps - 1) / tps} с";
-            else if (v.Front == 0) c.Where.text = "в тылу";
-            else if (!w.OnFront(v))
-                c.Where.text = $"к {_names.Dative(v.Front)} · {(v.ArriveTick - w.Tick + tps - 1) / tps} с";
-            else c.Where.text = "фронт: " + _names.Nominative(v.Front);
-            byte order = v.Front != 0 ? w.FrontOrderOf(Human, v.Front) : Orders.Defend;
-            c.Attack.EnableInClassList("active", v.Front != 0 && order == Orders.Attack);
-            c.Defend.EnableInClassList("active", v.Front != 0 && order == Orders.Defend);
-            c.AddInf.style.display = DisplayStyle.None;
-            c.AddArmor.style.display = DisplayStyle.None;
-            c.Root.EnableInClassList("selected", _selected == k);
+            var counts = new Dictionary<int, int>();
+            foreach (var key in _groupOrder) counts[key] = 0;
+            for (int k = 0; k < _tiles.Length; k++)
+            {
+                var t = _tiles[k];
+                var v = Div(k);
+                bool alive = v.Alive != 0 && Alive;
+                if (!alive)
+                {
+                    if (t.Group != int.MinValue)
+                    {
+                        t.Root.RemoveFromHierarchy();
+                        t.Group = int.MinValue;
+                    }
+                    _sel[k] = false;
+                    continue;
+                }
+                int g = GroupOf(v);
+                if (t.Group != g)
+                {
+                    // В группе плитки стоят по k: вставляем перед первой с большим k.
+                    t.Root.RemoveFromHierarchy();
+                    var body = _groups[g].Body;
+                    int at = body.childCount;
+                    for (int i = 0; i < body.childCount; i++)
+                        if (body[i].userData is int other && other > k) { at = i; break; }
+                    body.Insert(at, t.Root);
+                    t.Group = g;
+                }
+                counts[g]++;
+                bool armor = v.Type == DivisionTypes.Armor;
+                SetIcon(t.Icon, armor ? "armor" : "infantry");
+                t.StrFill.style.width = Length.Percent(v.Strength_bp / 100f);
+                t.StrFill.EnableInClassList("low", v.Strength_bp < 3000);
+                t.OrgFill.style.width = Length.Percent(v.Org_bp / 100f);
+                t.OrgFill.EnableInClassList("exhausted", v.Exhausted != 0);
+                t.Pause.style.display = v.Exhausted != 0 ? DisplayStyle.Flex : DisplayStyle.None;
+                bool training = w.Training(v);
+                bool transit = !training && v.Front != 0 && !w.OnFront(v);
+                int secs = training ? (v.ReadyTick - w.Tick + tps - 1) / tps : transit ? (v.ArriveTick - w.Tick + tps - 1) / tps : 0;
+                t.Timer.text = training || transit ? secs.ToString(CultureInfo.InvariantCulture) : ""; // секунды, золотом справа; «с» не влезает в 72 px
+                t.Timer.style.display = training || transit ? DisplayStyle.Flex : DisplayStyle.None;
+                t.Root.EnableInClassList("training", training);
+                t.Root.EnableInClassList("selected", _sel[k]);
+                t.Root.tooltip = TileTooltip(k, v);
+            }
+            foreach (var key in _groupOrder)
+            {
+                var grp = _groups[key];
+                int c = counts[key];
+                grp.Root.style.display = c > 0 ? DisplayStyle.Flex : DisplayStyle.None;
+                if (key > 0)
+                {
+                    FrontState(Human, (byte)key, out _, out _, out _, out _, out bool exh);
+                    bool atk = w.FrontOrderOf(Human, key) == Orders.Attack;
+                    grp.Header.text = $"{_names.Nominative(key)} · {(atk ? (exh ? "выдохлись" : "наступаем") : "оборона")}";
+                }
+            }
+        }
+
+        string TileTooltip(int k, in Division v)
+        {
+            var w = W;
+            string type = v.Type == DivisionTypes.Armor ? "танковая" : "пехотная";
+            string org = $"организация {v.Org_bp / 100}%" + (v.Exhausted != 0 ? ", выдохлась" : "");
+            string where;
+            int tps = _config.TicksPerSecond;
+            if (w.Training(v))
+                where = $"готовится ещё {(v.ReadyTick - w.Tick + tps - 1) / tps} с" + (v.Front != 0 ? $", потом на фронт с {_names.Instrumental(v.Front)}" : "");
+            else if (v.Front == 0) where = "в тылу";
+            else if (!w.OnFront(v)) where = $"идёт на фронт с {_names.Instrumental(v.Front)}, {(v.ArriveTick - w.Tick + tps - 1) / tps} с";
+            else where = $"фронт с {_names.Instrumental(v.Front)}";
+            return $"{k + 1}-я {type} · численность {v.Strength_bp / 100}% · {org} · {where}";
         }
 
         // ---------- построение элементов ----------
@@ -439,6 +554,13 @@ namespace BattlePix.Game
             r.Order = IconEl("frontOpen", "front-order");
             top.Add(r.Order);
             r.Verdict = Cell(top, "front-verdict", "");
+            var toggle = new VisualElement();
+            toggle.AddToClassList("order-toggle");
+            r.Attack = OrderButton(toggle, "attack", $"Наступать на {_names.Accusative(d)}: берём землю, дивизии выдыхаются и несут потери, держат хуже");
+            r.Defend = OrderButton(toggle, "defend", "Оборона: землю не берём, организация не горит, пока на нас не давят");
+            top.Add(toggle);
+            r.Attack.clicked += () => SetFrontOrder(d, Orders.Attack);
+            r.Defend.clicked += () => SetFrontOrder(d, Orders.Defend);
             r.Root.Add(top);
 
             var bottom = new VisualElement { pickingMode = PickingMode.Ignore };
@@ -458,12 +580,22 @@ namespace BattlePix.Game
 
             r.Root.RegisterCallback<PointerDownEvent>(evt =>
             {
-                if (evt.button != 0) return;
+                if (evt.button != 0 || InButton(evt.target as VisualElement, r.Root)) return;
                 OnFrontClicked(d);
                 evt.StopPropagation();
             });
             _frontsList.Add(r.Root);
             return r;
+
+            Button OrderButton(VisualElement parent, string icon, string tooltip)
+            {
+                var b = new Button { tooltip = tooltip };
+                b.AddToClassList("btn");
+                b.AddToClassList("order-btn");
+                b.Add(IconEl(icon));
+                parent.Add(b);
+                return b;
+            }
 
             static VisualElement Part(VisualElement parent, Color? color, string cls = null)
             {
@@ -478,6 +610,13 @@ namespace BattlePix.Game
             }
         }
 
+        static bool InButton(VisualElement t, VisualElement stop)
+        {
+            for (; t != null && t != stop; t = t.parent)
+                if (t is Button) return true;
+            return false;
+        }
+
         static Label Cell(VisualElement parent, string cls, string text)
         {
             var l = new Label(text) { pickingMode = PickingMode.Ignore };
@@ -486,67 +625,72 @@ namespace BattlePix.Game
             return l;
         }
 
-        Card MakeCard(int k)
+        void MakeGroup(int key, string title)
         {
-            var c = new Card { Root = new VisualElement() };
-            c.Root.AddToClassList("card");
-            var head = new VisualElement { pickingMode = PickingMode.Ignore };
-            head.AddToClassList("card-head");
-            c.Title = Cell(head, "text-30", $"{k + 1}-я");
-            var comp = new VisualElement { pickingMode = PickingMode.Ignore };
-            comp.AddToClassList("card-comp");
-            comp.Add(IconEl("army"));
-            c.Inf = Cell(comp, "text-20", "×0");
-            comp.Add(IconEl("armor"));
-            c.Armor = Cell(comp, "text-20", "×0");
-            head.Add(comp);
-            c.Root.Add(head);
-            var bg = new VisualElement();
-            bg.AddToClassList("bar-bg");
-            c.Fill = new VisualElement { pickingMode = PickingMode.Ignore };
-            c.Fill.AddToClassList("bar-fill");
-            bg.Add(c.Fill);
-            c.Root.Add(bg);
-            c.Where = Cell(c.Root, "card-where", "");
-            var orders = new VisualElement();
-            orders.AddToClassList("card-row");
-            c.Attack = Btn(orders, "attack", null, "Наступать (Q)", out _);
-            c.Defend = Btn(orders, "defend", null, "Обороняться (E)", out _);
-            c.Root.Add(orders);
-            var adds = new VisualElement();
-            adds.AddToClassList("card-row");
-            c.AddInf = Btn(adds, "budget", "П", null, out c.AddInfText);
-            c.AddArmor = Btn(adds, "budget", "Б", null, out c.AddArmorText);
-            c.Root.Add(adds);
-
-            c.Attack.clicked += () => SetOrder(k, Orders.Attack);
-            c.Defend.clicked += () => SetOrder(k, Orders.Defend);
-            // Клик по телу карточки (не по кнопке) выделяет дивизию; повторный — снимает.
-            c.Root.RegisterCallback<ClickEvent>(evt =>
+            var g = new Group { Root = new VisualElement() };
+            g.Root.AddToClassList("div-group");
+            g.Header = new Label(title);
+            g.Header.AddToClassList("div-group-head");
+            g.Header.tooltip = "Двойной клик — выделить всю группу";
+            g.Header.RegisterCallback<ClickEvent>(evt =>
             {
-                for (var t = evt.target as VisualElement; t != null && t != c.Root; t = t.parent)
-                    if (t is Button) return;
-                _selected = _selected == k ? -1 : k;
+                if (evt.clickCount < 2) return;
+                if (!evt.shiftKey) Array.Clear(_sel, 0, _sel.Length);
+                for (int k = 0; k < _tiles.Length; k++)
+                    if (_tiles[k].Group == key) _sel[k] = true;
                 Refresh();
+                evt.StopPropagation();
             });
-            _formationsList.Add(c.Root);
-            return c;
+            g.Root.Add(g.Header);
+            g.Body = new VisualElement();
+            g.Body.AddToClassList("div-group-body");
+            g.Root.Add(g.Body);
+            g.Root.style.display = DisplayStyle.None;
+            _divList.Add(g.Root);
+            _groups[key] = g;
+            _groupOrder.Add(key);
+        }
 
-            Button Btn(VisualElement parent, string icon, string text, string tooltip, out Label label)
+        Tile MakeTile(int k)
+        {
+            var t = new Tile { Root = new VisualElement { userData = k } };
+            t.Root.AddToClassList("div-tile");
+            var head = new VisualElement { pickingMode = PickingMode.Ignore };
+            head.AddToClassList("div-tile-head");
+            t.Icon = IconEl("infantry", "div-tile-icon");
+            head.Add(t.Icon);
+            t.Num = Cell(head, "div-tile-num", (k + 1).ToString(CultureInfo.InvariantCulture));
+            t.Timer = Cell(head, "div-tile-timer", "");
+            t.Pause = IconEl("pause", "div-tile-pause");
+            head.Add(t.Pause);
+            t.Root.Add(head);
+            t.StrFill = Bar(t.Root, "div-bar-str");
+            t.OrgFill = Bar(t.Root, "div-bar-org");
+            t.Root.RegisterCallback<ClickEvent>(evt =>
             {
-                var b = new Button();
-                if (tooltip != null) b.tooltip = tooltip;
-                b.AddToClassList("btn");
-                b.Add(IconEl(icon));
-                label = null;
-                if (text != null)
+                if (evt.shiftKey) _sel[k] = !_sel[k];
+                else
                 {
-                    label = new Label(text) { pickingMode = PickingMode.Ignore };
-                    label.AddToClassList("text-20");
-                    b.Add(label);
+                    bool only = _sel[k] && SelectedCount() == 1;
+                    Array.Clear(_sel, 0, _sel.Length);
+                    _sel[k] = !only;
                 }
-                parent.Add(b);
-                return b;
+                _lastClicked = k;
+                Refresh();
+                evt.StopPropagation();
+            });
+            return t;
+
+            static VisualElement Bar(VisualElement parent, string cls)
+            {
+                var bg = new VisualElement { pickingMode = PickingMode.Ignore };
+                bg.AddToClassList("div-bar");
+                var fill = new VisualElement { pickingMode = PickingMode.Ignore };
+                fill.AddToClassList("div-bar-fill");
+                fill.AddToClassList(cls);
+                bg.Add(fill);
+                parent.Add(bg);
+                return fill;
             }
         }
 
@@ -554,10 +698,19 @@ namespace BattlePix.Game
         {
             var m = new Marker { Root = new VisualElement { pickingMode = PickingMode.Ignore } };
             m.Root.AddToClassList("hq-marker");
+            var top = new VisualElement { pickingMode = PickingMode.Ignore };
+            top.AddToClassList("hq-marker-top");
             m.Icon = IconEl("hq");
-            m.Root.Add(m.Icon);
+            top.Add(m.Icon);
             m.Count = new Label("") { pickingMode = PickingMode.Ignore };
-            m.Root.Add(m.Count);
+            top.Add(m.Count);
+            m.Root.Add(top);
+            var bg = new VisualElement { pickingMode = PickingMode.Ignore };
+            bg.AddToClassList("hq-org");
+            m.OrgFill = new VisualElement { pickingMode = PickingMode.Ignore };
+            m.OrgFill.AddToClassList("hq-org-fill");
+            bg.Add(m.OrgFill);
+            m.Root.Add(bg);
             m.Root.style.display = DisplayStyle.None;
             _markers.Add(m.Root);
             return m;
@@ -584,6 +737,62 @@ namespace BattlePix.Game
             });
         }
 
+        // ---------- рамка выделения ----------
+
+        void OnBandDown(PointerDownEvent evt)
+        {
+            if (evt.button != 0 || _sim == null) return;
+            // Начинаем рамку только с пустого места: не с плитки и не с заголовка группы.
+            for (var t = evt.target as VisualElement; t != null && t != _divList; t = t.parent)
+                if (t.ClassListContains("div-tile") || t.ClassListContains("div-group-head")) return;
+            _banding = true;
+            _bandAdd = evt.shiftKey;
+            _bandStart = evt.position;
+            _divPanel.CapturePointer(evt.pointerId);
+            UpdateBand(evt.position);
+            _band.RemoveFromClassList("hidden");
+        }
+
+        void OnBandMove(PointerMoveEvent evt)
+        {
+            if (!_banding) return;
+            UpdateBand(evt.position);
+        }
+
+        void OnBandUp(PointerUpEvent evt)
+        {
+            if (!_banding) return;
+            _banding = false;
+            _divPanel.ReleasePointer(evt.pointerId);
+            _band.AddToClassList("hidden");
+            var rect = BandRect(evt.position);
+            if (!_bandAdd) Array.Clear(_sel, 0, _sel.Length);
+            if (rect.width >= 4 || rect.height >= 4)
+                for (int k = 0; k < _tiles.Length; k++)
+                {
+                    var t = _tiles[k];
+                    if (t.Group == int.MinValue || t.Root.resolvedStyle.display == DisplayStyle.None) continue;
+                    if (t.Root.worldBound.Overlaps(rect)) _sel[k] = true;
+                }
+            Refresh();
+        }
+
+        Rect BandRect(Vector2 now)
+        {
+            float x0 = Mathf.Min(_bandStart.x, now.x), y0 = Mathf.Min(_bandStart.y, now.y);
+            return new Rect(x0, y0, Mathf.Abs(now.x - _bandStart.x), Mathf.Abs(now.y - _bandStart.y));
+        }
+
+        void UpdateBand(Vector2 now)
+        {
+            var r = BandRect(now);
+            var origin = _divPanel.worldBound.position;
+            _band.style.left = r.x - origin.x;
+            _band.style.top = r.y - origin.y;
+            _band.style.width = r.width;
+            _band.style.height = r.height;
+        }
+
         // ---------- действия ----------
 
         RejectReason RecruitReason(byte type)
@@ -595,25 +804,28 @@ namespace BattlePix.Game
         RejectReason RearReason()
         {
             if (_sim == null || !Alive) return RejectReason.NationInvalid;
-            if (_selected < 0) return RejectReason.DivisionInvalid;
-            var v = W.DivisionAt(W.DivisionSlot(Human, _selected));
-            return v.Front == 0 ? RejectReason.AlreadyThere : RejectReason.None;
+            if (SelectedCount() == 0) return RejectReason.DivisionInvalid;
+            for (int k = 0; k < _sel.Length; k++)
+                if (_sel[k] && Div(k).Front != 0) return RejectReason.None;
+            return RejectReason.AlreadyThere;
         }
 
-        /// <summary>Приказ отдаётся фронту, на котором стоит (или куда идёт) дивизия k.</summary>
-        void SetOrder(int k, byte order)
+        void SetFrontOrder(byte d, byte order)
         {
-            if (_sim == null || W.IsOver || !Alive || k < 0) return;
-            var v = W.DivisionAt(W.DivisionSlot(Human, k));
-            if (v.Front == 0) { ShowTip("Приказ отдаётся фронту: сначала поставьте дивизию на фронт"); return; }
-            _sim.EnqueueFromUi(CommandType.SetFrontOrder, Human, v.Front, order);
+            if (_sim == null || W.IsOver || !Alive) return;
+            var r = GameCommands.ValidateFrontOrder(W, Human, d, order);
+            if (r != RejectReason.None) { ShowTip(ReasonText(r, 0)); return; }
+            if (W.FrontOrderOf(Human, d) == order) return;
+            _sim.EnqueueFromUi(CommandType.SetFrontOrder, Human, d, order);
+            ShowTip(order == Orders.Attack ? $"Наступление на {_names.Accusative(d)}" : $"Фронт с {_names.Instrumental(d)}: оборона", 2f);
+            Refresh();
         }
 
         void OnFrontClicked(byte d)
         {
-            if (_selected >= 0)
+            if (SelectedCount() > 0)
             {
-                Assign(d);
+                AssignSelected(d);
                 return;
             }
             _plateFront = _plateFront == d ? 0 : d;
@@ -626,16 +838,30 @@ namespace BattlePix.Game
             Refresh();
         }
 
-        void Assign(byte d)
+        /// <summary>
+        /// По одной AssignDivision на каждую выделенную дивизию в один тик, по k. Дивизия, уже стоящая там, ядром
+        /// отклоняется AlreadyThere — это не ошибка (01c §10). Подсказка с причиной — только если не пройдёт ни одна.
+        /// </summary>
+        void AssignSelected(int d)
         {
-            var r = GameCommands.ValidateAssign(W, Human, _selected, d);
-            if (r != RejectReason.None)
+            if (_sim == null || W.IsOver || !Alive) return;
+            int sent = 0;
+            RejectReason first = RejectReason.DivisionInvalid;
+            for (int k = 0; k < _sel.Length; k++)
             {
-                ShowTip(ReasonText(r, 0));
+                if (!_sel[k]) continue;
+                var r = GameCommands.ValidateAssign(W, Human, k, d);
+                if (r == RejectReason.None) sent++;
+                else if (first == RejectReason.DivisionInvalid || first == RejectReason.AlreadyThere) first = r;
+                if (r == RejectReason.None || r == RejectReason.AlreadyThere)
+                    _sim.EnqueueFromUi(CommandType.AssignDivision, Human, k, d);
+            }
+            if (sent == 0)
+            {
+                ShowTip(ReasonText(first, 0));
                 return;
             }
-            _sim.EnqueueFromUi(CommandType.AssignDivision, Human, _selected, d);
-            ShowTip($"{_selected + 1}-я идёт на фронт с {_names.Instrumental(d)}", 2.5f);
+            ShowTip(d == 0 ? $"В тыл: {Divisions(sent)}" : $"На фронт с {_names.Instrumental((byte)d)}: {Divisions(sent)}, в пути {_rules.Army.TransferTicks / _config.TicksPerSecond} с", 2.5f);
             Deselect();
             Refresh();
         }
@@ -652,15 +878,16 @@ namespace BattlePix.Game
             var w = W;
             int i = w.Index(x, y);
             int o = w.IsLand(i) ? w.Owner[i] : 0;
+            bool selected = SelectedCount() > 0;
             if (o == 0 || o == Human)
             {
-                if (_selected >= 0) { ShowTip("Назначить можно только на фронт с соседом: кликните по его земле"); return true; }
+                if (selected) { ShowTip("Назначить можно только на фронт с соседом: кликните по его земле"); return true; }
                 if (_plateFront != 0) { HidePanels(); Refresh(); }
                 return false;
             }
-            if (_selected >= 0 && Alive)
+            if (selected && Alive)
             {
-                Assign((byte)o);
+                AssignSelected(o);
                 return true;
             }
             if (Contact(o))
@@ -674,40 +901,66 @@ namespace BattlePix.Game
             return true;
         }
 
-        /// <summary>Клавиши партии: Tab — следующая дивизия, Q / E — приказ её фронту, R — в тыл (для выделенной).</summary>
+        /// <summary>
+        /// Клавиши партии: Tab — следующая дивизия, A — выделить весь тыл, R — выделенные в тыл,
+        /// Q / E — наступление / оборона на открытой плашкой фронте (или на фронтах выделенных дивизий).
+        /// </summary>
         public void OnKeys(UnityEngine.InputSystem.Keyboard kb)
         {
             if (_sim == null || kb == null || W.IsOver) return;
             if (_root.panel?.focusController?.focusedElement is TextField) return;
+            int maxK = W.MaxDivisionsPerNation;
             if (kb.tabKey.wasPressedThisFrame)
             {
-                int maxF = W.MaxDivisionsPerNation;
-                for (int step = 1; step <= maxF; step++)
+                for (int step = 1; step <= maxK; step++)
                 {
-                    int k = ((_selected < 0 ? -1 : _selected) + step + maxF) % maxF;
+                    int k = (_lastClicked + step + maxK) % maxK;
                     if (!GameCommands.OwnDivision(W, Human, k)) continue;
-                    _selected = k;
+                    Array.Clear(_sel, 0, _sel.Length);
+                    _sel[k] = true;
+                    _lastClicked = k;
                     break;
                 }
                 Refresh();
             }
-            if (_selected < 0) return;
-            if (kb.qKey.wasPressedThisFrame) { SetOrder(_selected, Orders.Attack); Refresh(); }
-            if (kb.eKey.wasPressedThisFrame) { SetOrder(_selected, Orders.Defend); Refresh(); }
+            if (kb.aKey.wasPressedThisFrame)
+            {
+                Array.Clear(_sel, 0, _sel.Length);
+                for (int k = 0; k < maxK; k++)
+                {
+                    var v = Div(k);
+                    if (v.Alive != 0 && v.Front == 0 && !W.Training(v)) _sel[k] = true;
+                }
+                Refresh();
+            }
+            if (kb.qKey.wasPressedThisFrame) OrderKey(Orders.Attack);
+            if (kb.eKey.wasPressedThisFrame) OrderKey(Orders.Defend);
             if (kb.rKey.wasPressedThisFrame)
             {
                 var r = RearReason();
                 if (r != RejectReason.None) ShowTip(ReasonText(r, 0));
-                else
-                {
-                    _sim.EnqueueFromUi(CommandType.AssignDivision, Human, _selected, 0);
-                    Deselect();
-                    Refresh();
-                }
+                else AssignSelected(0);
             }
         }
 
-        /// <summary>Только для скриншота бенча: открыть плашку первого фронта и выделить 1-ю дивизию.</summary>
+        void OrderKey(byte order)
+        {
+            if (_plateFront != 0) { SetFrontOrder((byte)_plateFront, order); return; }
+            var done = new bool[W.NationCount + 1];
+            bool any = false;
+            for (int k = 0; k < _sel.Length; k++)
+            {
+                if (!_sel[k]) continue;
+                byte f = Div(k).Front;
+                if (f == 0 || done[f]) continue;
+                done[f] = true;
+                any = true;
+                SetFrontOrder(f, order);
+            }
+            if (!any) ShowTip("Приказ отдаётся фронту: откройте фронт кликом или выделите дивизии на нём");
+        }
+
+        /// <summary>Только для скриншота бенча: открыть плашку первого фронта и выделить дивизии в тылу.</summary>
         public Vector3? ShowFirstFrontForShot()
         {
             Vector3? at = null;
@@ -719,7 +972,9 @@ namespace BattlePix.Game
                     if (FrontPoint((byte)d, out var c)) at = _map.CellToWorld(c.x, c.y);
                     break;
                 }
-            _selected = GameCommands.OwnDivision(W, Human, 0) ? 0 : -1;
+            Array.Clear(_sel, 0, _sel.Length);
+            for (int k = 0; k < _sel.Length; k++)
+                if (GameCommands.OwnDivision(W, Human, k) && Div(k).Front == 0) _sel[k] = true;
             Refresh();
             return at;
         }
@@ -734,7 +989,7 @@ namespace BattlePix.Game
 
         void Deselect()
         {
-            _selected = -1;
+            if (_sel != null) Array.Clear(_sel, 0, _sel.Length);
         }
 
         public void HidePanels()
@@ -759,34 +1014,30 @@ namespace BattlePix.Game
         }
 
         /// <summary>
-        /// Плашка фронта (спека 02a §9.2): те же AttPow / DefPow ядра, что двигают границу, но словами.
+        /// Плашка фронта (спека 02a §9.2, 01c §9): те же AttPow / DefPow ядра, что двигают границу, но словами.
         /// Таблицы по рельефу — в подсказке по наведению на строку «Они».
         /// </summary>
         void FillPlate(byte d)
         {
             var w = W;
             int len = Math.Max(1, w.FrontLength(Human, d));
-            int ours = 0, theirs = 0;
-            bool weAttack = false, theyAttack = false;
-            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
-            {
-                if (w.OnFront(w.DivisionAt(w.DivisionSlot(Human, k))) && w.DivisionAt(w.DivisionSlot(Human, k)).Front == d) ours++;
-                var g = w.DivisionAt(w.DivisionSlot(d, k));
-                if (w.OnFront(g) && g.Front == Human) theirs++;
-            }
+            FrontState(Human, d, out int ours, out int ourTransit, out int ourArmor, out int ourOrg, out bool weTired);
+            FrontState(d, Human, out int theirs, out _, out _, out int theirOrg, out bool theyTired);
             _plateTitle.text = $"Фронт с {_names.Instrumental(d)}";
             long wa = w.WeightedAttack(Human, d), wd = w.WeightedDefense(Human, d);
             long ta = w.WeightedAttack(d, Human), td = w.WeightedDefense(d, Human);
-            weAttack = wa > 0;
-            theyAttack = ta > 0;
-            SetIcon(_plateUsIcon, ours == 0 ? "frontOpen" : weAttack ? "attack" : "defend");
+            bool weOrder = w.FrontOrderOf(Human, d) == Orders.Attack;
+            bool theyOrder = w.FrontOrderOf(d, Human) == Orders.Attack;
+            bool weAttack = wa > 0, theyAttack = ta > 0;
+            SetIcon(_plateUsIcon, ours == 0 ? "frontOpen" : weTired ? "pause" : weOrder ? "attack" : "defend");
+            string transit = ourTransit > 0 ? $" · в пути {ourTransit}" : "";
             _plateUs.text = ours == 0
-                ? $"Мы: только гарнизон · оборона {wd / len}"
-                : $"Мы: {Divisions(ours)} · {(weAttack ? "наступление" : "оборона")} · {(weAttack ? wa : wd) / len} на ребро";
-            SetIcon(_plateThemIcon, theyAttack ? "attack" : "defend");
+                ? $"Мы: только гарнизон · оборона {wd / len}{transit}"
+                : $"Мы: {Divisions(ours)} ({ourArmor} танк., {ours - ourArmor} пех.) · {(weOrder ? (weTired ? "наступление выдохлось" : "наступление") : "оборона")} · организация {ourOrg / 100}% · {(weAttack ? wa : wd) / len} на ребро{transit}";
+            SetIcon(_plateThemIcon, theirs == 0 ? "frontOpen" : theyTired ? "pause" : theyOrder ? "attack" : "defend");
             _plateThem.text = theirs == 0
                 ? $"Они: только гарнизон · оборона {td / len}"
-                : $"Они: {Divisions(theirs)} · {(theyAttack ? "наступление" : "оборона")} · {(theyAttack ? ta : td) / len}";
+                : $"Они: {Divisions(theirs)} · {(theyOrder ? (theyTired ? "наступление выдохлось" : "наступление") : "оборона")} · организация {theirOrg / 100}%";
             _plateThemRow.tooltip = $"Их оборона на ребро {Triple(tr => w.DefPow(d, Human, tr))} (равнина / холмы / горы)"
                                     + (theyAttack ? $"\nИх атака на ребро {Triple(tr => w.AttPow(d, Human, tr))}" : "")
                                     + $"\nНаша {(weAttack ? "атака" : "оборона")} на ребро {Triple(tr => weAttack ? w.AttPow(Human, d, tr) : w.DefPow(Human, d, tr))}";
@@ -800,17 +1051,21 @@ namespace BattlePix.Game
             int net = w.NetFlips10s(Human, d);
             string move = net > 0 ? $"берём ~{net} px за 10 с" : net < 0 ? $"теряем ~{-net} px за 10 с" : "фронт стоит";
             string verdict;
-            if (weAttack && (!theyAttack || wa * Math.Max(1, wd) >= ta * Math.Max(1, td)))
+            if (weTired && net <= 0)
+                verdict = $"Наступление выдохлось — {move}. Подождите организацию или подведите свежие дивизии";
+            else if (weAttack && (!theyAttack || wa * Math.Max(1, wd) >= ta * Math.Max(1, td)))
                 verdict = wa >= td ? $"Перевес {Ratio(wa, td)} — {move}" : $"Сил мало: {Ratio(wa, td)} — {move}";
             else if (theyAttack)
                 verdict = ta >= wd ? $"У них перевес {Ratio(ta, wd)} — {move}" : $"Держим: у них {Ratio(ta, wd)} — {move}";
-            else verdict = ours == 0 ? $"Никто не наступает — {move}. Поставьте дивизию" : $"Никто не наступает — {move}";
+            else verdict = ours == 0 ? $"Никто не наступает — {move}. Поставьте дивизии" : $"Никто не наступает — {move}";
             _plateVerdict.text = verdict;
             _plateVerdict.EnableInClassList("good", net > 0);
             _plateVerdict.EnableInClassList("bad", net < 0);
         }
 
-        static string Divisions(int n) => n % 10 == 1 && n % 100 != 11 ? $"{n} дивизия" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? $"{n} дивизии" : $"{n} дивизий";
+        static string Divisions(int n) =>
+            n % 10 == 1 && n % 100 != 11 ? $"{n} дивизия"
+            : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? $"{n} дивизии" : $"{n} дивизий";
 
         static string Triple(Func<int, int> f) => $"{f(0)} / {f(1)} / {f(2)}";
 
@@ -855,7 +1110,7 @@ namespace BattlePix.Game
                 _hoverSince = now;
                 _hover.AddToClassList("hidden");
             }
-            if (owner == null || now - _hoverSince < 0.3f) return;
+            if (owner == null || _banding || now - _hoverSince < 0.3f) return;
             _hover.text = owner.tooltip;
             _hover.RemoveFromClassList("hidden");
             var rootBound = _root.worldBound;
@@ -872,13 +1127,14 @@ namespace BattlePix.Game
         // ---------- значки на карте и позиции ----------
 
         /// <summary>
-        /// Раз в секунду: на каждом своём фронте значок штаба с числом соединений (стрелка — наступаем) в точке фронта,
-        /// ближайшей к среднему его пограничных пикселей человека; открытый фронт — пустой круг. Позиции — каждый кадр;
-        /// там же плашка фронта едет за своей точкой, сводка и подсказка гаснут.
+        /// Раз в секунду: на каждом своём фронте значок с числом своих дивизий на месте и полоской их средней организации
+        /// (стрелка — наступаем, пауза — все наступающие выдохлись) в точке фронта, ближайшей к среднему его пограничных
+        /// пикселей человека; открытый фронт — пустой круг. Позиции — каждый кадр; там же плашка фронта едет за своей точкой,
+        /// сводка и подсказка гаснут.
         /// </summary>
         public void UpdateMarkers(float now)
         {
-            if (_sim == null || _hq == null) return;
+            if (_sim == null || _marks == null) return;
             var w = W;
             int n = w.NationCount;
             if (now >= _nextMarkers)
@@ -903,7 +1159,7 @@ namespace BattlePix.Game
             var origin = _markers.worldBound.position;
             for (int d = 1; d <= n; d++)
             {
-                var m = _hq[d];
+                var m = _marks[d];
                 if (!m.Cell.HasValue) continue;
                 var pos = RuntimePanelUtils.CameraTransformWorldToPanel(panel, _map.CellToWorld(m.Cell.Value.x, m.Cell.Value.y), _camera) - origin;
                 float mw = m.Root.resolvedStyle.width;
@@ -960,7 +1216,7 @@ namespace BattlePix.Game
             }
             for (int d = 1; d <= n; d++)
             {
-                var m = _hq[d];
+                var m = _marks[d];
                 if (d == Human || count[d] == 0 || !Contact(d) || !Alive)
                 {
                     m.Root.style.display = DisplayStyle.None;
@@ -977,29 +1233,26 @@ namespace BattlePix.Game
                     long dx = p % width - mx, dy = p / width - my, d2 = dx * dx + dy * dy;
                     if (d2 < bestD) { bestD = d2; best = p; }
                 }
-                int onPlace = 0;
-                bool attack = false;
-                for (int k = 0; k < w.MaxDivisionsPerNation; k++)
-                {
-                    var v = w.DivisionAt(w.DivisionSlot(Human, k));
-                    if (!w.OnFront(v) || v.Front != d) continue;
-                    onPlace++;
-                    attack |= w.FrontOrderOf(Human, d) == Orders.Attack;
-                }
-                SetIcon(m.Icon, onPlace == 0 ? "frontOpen" : attack ? "attack" : "hq");
+                FrontState(Human, (byte)d, out int onPlace, out _, out _, out int avgOrg, out bool tired);
+                bool attack = onPlace > 0 && w.FrontOrderOf(Human, d) == Orders.Attack;
+                SetIcon(m.Icon, onPlace == 0 ? "frontOpen" : tired ? "pause" : attack ? "attack" : "hq");
                 m.Count.text = onPlace == 0 ? "" : onPlace.ToString(CultureInfo.InvariantCulture);
-                m.Root.EnableInClassList("attack", attack);
+                m.OrgFill.parent.style.display = onPlace == 0 ? DisplayStyle.None : DisplayStyle.Flex;
+                m.OrgFill.style.width = Length.Percent(avgOrg / 100f);
+                m.OrgFill.EnableInClassList("exhausted", tired);
+                m.Root.EnableInClassList("attack", attack && !tired);
                 m.Root.EnableInClassList("empty", onPlace == 0);
+                m.Root.EnableInClassList("tired", tired);
                 m.Cell = new Vector2Int(best % width, best / width);
                 m.Root.style.display = DisplayStyle.Flex;
             }
         }
 
-        /// <summary>Точка фронта с d (та же, где значок штаба); пока значки не посчитаны — первый пограничный пиксель.</summary>
+        /// <summary>Точка фронта с d (та же, где значок фронта); пока значки не посчитаны — первый пограничный пиксель.</summary>
         bool FrontPoint(byte d, out Vector2Int cell)
         {
             cell = default;
-            if (_hq != null && _hq[d].Cell.HasValue) { cell = _hq[d].Cell.Value; return true; }
+            if (_marks != null && _marks[d].Cell.HasValue) { cell = _marks[d].Cell.Value; return true; }
             var w = W;
             var frontier = w.Frontier;
             for (int i = 0; i < frontier.Length; i++)
@@ -1019,13 +1272,13 @@ namespace BattlePix.Game
             return false;
         }
 
-        // ---------- сводка (спека 02a §9.2: те же пять событий 1b, новых нет) ----------
+        // ---------- сводка (02a §9.2 + 01c §9) ----------
 
         public void CheckEvents()
         {
             if (_sim == null) return;
             var w = W;
-            int n = w.NationCount, maxF = w.MaxDivisionsPerNation;
+            int n = w.NationCount, maxK = w.MaxDivisionsPerNation;
             bool alive = Alive;
             for (int d = 1; d <= n; d++)
             {
@@ -1033,10 +1286,20 @@ namespace BattlePix.Game
                 bool contact = Contact(d);
                 if (alive && contact && !_prevContact[d])
                     Feed(FeedKind.Urgent, $"Новый фронт с {_names.Instrumental(d)} — он открыт", FrontCell((byte)d));
+                if (alive && !contact && _prevContact[d] && w.Nation((byte)d).Alive != 0)
+                    Feed(FeedKind.Report, $"Фронт с {_names.Instrumental(d)} закрылся, дивизии с него — в тылу", null);
                 _prevContact[d] = contact;
                 bool attacked = alive && contact && w.WeightedAttack(d, Human) > 0;
-                if (attacked && !_prevAttacked[d]) Feed(FeedKind.Urgent, $"{_names.Nominative(d)} наступает на нас", FrontCell((byte)d));
+                if (attacked && !_prevAttacked[d])
+                {
+                    FrontState(Human, (byte)d, out int ours, out _, out _, out _, out _);
+                    Feed(FeedKind.Urgent, ours == 0 ? $"{_names.Nominative(d)} наступает на нас — фронт открыт" : $"{_names.Nominative(d)} наступает на нас", FrontCell((byte)d));
+                }
                 _prevAttacked[d] = attacked;
+                bool tired = false;
+                if (alive && contact) FrontState(Human, (byte)d, out _, out _, out _, out _, out tired);
+                if (tired && !_prevExhausted[d]) Feed(FeedKind.Loss, $"Наступление на {_names.Accusative(d)} выдохлось", FrontCell((byte)d));
+                _prevExhausted[d] = tired;
                 bool natAlive = w.Nation((byte)d).Alive != 0;
                 if (_prevAlive[d] && !natAlive)
                 {
@@ -1046,16 +1309,13 @@ namespace BattlePix.Game
                 _prevAlive[d] = natAlive;
                 if (natAlive) _lastCapital[d] = w.Nation((byte)d).Capital;
             }
-            for (int k = 0; k < maxF; k++)
+            for (int k = 0; k < maxK; k++)
             {
-                var f = w.DivisionAt(w.DivisionSlot(Human, k));
-                byte was = _prevFront[k];
-                if (alive && f.Alive != 0 && was != 0 && f.Front == 0 && (w.FrontLength(Human, was) <= 0 || w.Nation(was).Alive == 0))
-                    Feed(FeedKind.Report, $"Фронт с {_names.Instrumental(was)} закрылся, {k + 1}-я в тылу", null);
-                _prevFront[k] = f.Front;
-                bool bled = alive && f.Alive != 0 && f.Strength_bp < 3000;
-                if (bled && !_prevBled[k]) Feed(FeedKind.Loss, $"{k + 1}-я дивизия обескровлена", f.Front != 0 ? FrontCell(f.Front) : null);
-                _prevBled[k] = bled;
+                var v = Div(k);
+                bool training = v.Alive != 0 && w.Training(v);
+                if (alive && v.Alive != 0 && _prevTraining[k] && !training)
+                    Feed(FeedKind.Report, $"{k + 1}-я {(v.Type == DivisionTypes.Armor ? "танковая" : "пехотная")} дивизия готова" + (v.Front != 0 ? $", идёт на фронт с {_names.Instrumental(v.Front)}" : ", в тылу"), null);
+                _prevTraining[k] = training;
             }
         }
 
@@ -1095,7 +1355,7 @@ namespace BattlePix.Game
         static string Gold(long c) => (c / 100).ToString(CultureInfo.InvariantCulture);
         static string PerSec(long c) => (c >= 0 ? "+" : "−") + (Math.Abs(c) / 100.0).ToString("0.0", Ru);
 
-        /// <summary>Тексты причин отказа (таблица раздела 10 спеки 01b), словарь 02a: бюджет вместо золота.</summary>
+        /// <summary>Тексты причин отказа, словарь 02a: бюджет вместо золота.</summary>
         string ReasonText(RejectReason r, int cost)
         {
             var w = W;
@@ -1110,10 +1370,9 @@ namespace BattlePix.Game
                 }
                 case RejectReason.DivisionLimit: return $"Больше {w.MaxDivisionsPerNation} дивизий не набрать";
                 case RejectReason.NoContact: return "С ними нет общей границы";
-                case RejectReason.AlreadyThere: return _selected >= 0 && W.DivisionAt(W.DivisionSlot(Human, _selected)).Front == 0
-                    ? "Дивизия уже в тылу" : "Дивизия уже стоит на этом фронте";
+                case RejectReason.AlreadyThere: return "Выделенные дивизии уже там";
                 case RejectReason.TargetInvalid: return "Фронт — только с живым соседом";
-                case RejectReason.DivisionInvalid: return "Сначала выделите дивизию кликом по карточке";
+                case RejectReason.DivisionInvalid: return "Сначала выделите дивизии: клик по плитке, Shift-клик, рамка или A — весь тыл";
                 case RejectReason.NationInvalid: return "Наша столица пала";
                 default: return r.ToString();
             }
