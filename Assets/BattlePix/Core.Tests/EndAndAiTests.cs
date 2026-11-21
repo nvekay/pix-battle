@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 
 namespace BattlePix.Core.Tests
@@ -96,6 +97,79 @@ namespace BattlePix.Core.Tests
                 Assert.AreNotEqual(EndReason.TickLimit, sim.World.EndReason);
                 Assert.AreEqual(sim.World.Tick, sim.Checkpoints[sim.Checkpoints.Count - 1].Tick);
                 TestContext.WriteLine($"seed 2: {sim.World.EndReason} winner {sim.World.Winner} at tick {sim.World.Tick}");
+            }
+        }
+    }
+
+    /// <summary>ИИ соединений (спека 01b §5.8).</summary>
+    public class AiTests
+    {
+        [Test]
+        public void Ai_IssuesCommands_NotLogged_ReplayStillPasses()
+        {
+            ReplayFile replay;
+            int ai = 0;
+            using (var sim = TestData.Match(5, 6000, human: 1))
+            {
+                while (!sim.World.IsOver)
+                {
+                    if (sim.World.Tick == 100) sim.EnqueueFromUi(CommandType.RecruitUnit, 1, 0, UnitTypes.Infantry);
+                    sim.Step();
+                    foreach (var c in sim.AppliedLastTick) if (c.Nation != 1) ai++;
+                }
+                Assert.AreEqual(1, sim.CommandLog.Count, "AI commands are not in the log");
+                for (byte id = 2; id <= 8; id++)
+                    Assert.Greater(sim.World.Nation(id).RecruitedInf + sim.World.Nation(id).RecruitedArmor, 0, $"AI {id} never recruited");
+                replay = ReplayFile.FromJson(ReplayFile.Capture(sim, "t", 0).ToJson());
+            }
+            Assert.Greater(ai, 0);
+            var r = ReplayPlayer.Verify(replay, TestData.Config(), TestData.Rules());
+            Assert.IsTrue(r.Ok, r.Error);
+        }
+
+        [Test]
+        public void Ai_UsesAllThreeCommands_AndAttacks_OverAMatch()
+        {
+            using (var sim = TestData.Match(7, 12000))
+            {
+                var counts = new Dictionary<CommandType, int>();
+                bool attacked = false;
+                while (!sim.World.IsOver)
+                {
+                    sim.Step();
+                    foreach (var c in sim.AppliedLastTick)
+                    {
+                        counts.TryGetValue(c.Type, out int k);
+                        counts[c.Type] = k + 1;
+                    }
+                    if (!attacked)
+                        for (byte id = 1; id <= 8 && !attacked; id++)
+                            for (int f = 0; f < sim.World.MaxFormationsPerNation; f++)
+                            {
+                                var form = sim.World.FormationAt(sim.World.FormationSlot(id, f));
+                                if (sim.World.OnFront(form) && form.Order == Orders.Attack) { attacked = true; break; }
+                            }
+                }
+                TestContext.WriteLine("AI commands: " + string.Join(", ", counts));
+                Assert.Greater(counts.TryGetValue(CommandType.RecruitUnit, out var r) ? r : 0, 0);
+                Assert.Greater(counts.TryGetValue(CommandType.AssignFormation, out var a) ? a : 0, 0);
+                Assert.Greater(counts.TryGetValue(CommandType.SetOrder, out var o) ? o : 0, 0);
+                Assert.IsTrue(attacked, "some formation attacked on a front");
+            }
+        }
+
+        [Test]
+        public void IdleProfile_DoesNothing()
+        {
+            using (var sim = TestData.IdleMatch(7))
+            {
+                int applied = 0;
+                for (int t = 0; t < 3000; t++)
+                {
+                    sim.Step();
+                    applied += sim.AppliedLastTick.Count;
+                }
+                Assert.AreEqual(0, applied);
             }
         }
     }
