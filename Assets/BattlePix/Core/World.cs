@@ -61,6 +61,68 @@ namespace BattlePix.Core
         public int RecruitedInfDiv;
         public int RecruitedArmorDiv;
         public int DivisionsLost;
+        /// <summary>Тик конца последней войны, которую нация начала (02b §4.9, idleWarTicks); 0 — не было. Входит в хеш.</summary>
+        public int OwnWarEndTick;
+    }
+
+    /// <summary>Статус пары наций (спека 02b §3.2).</summary>
+    public static class WarStatus
+    {
+        public const byte Peace = 0;
+        public const byte War = 1;
+        public const byte Truce = 2;
+    }
+
+    /// <summary>Цель войны нападающего.</summary>
+    public static class WarGoals
+    {
+        public const byte None = 0;
+        public const byte Claims = 1;
+        public const byte Reparations = 2;
+    }
+
+    /// <summary>Вид мира в War.PendingPeace (02b §4.3).</summary>
+    public static class PeaceKinds
+    {
+        public const byte None = 0;
+        public const byte White = 1;
+        public const byte Claims = 2;
+        public const byte Reparations = 3;
+        public const byte DefenseWin = 4;
+    }
+
+    /// <summary>
+    /// Состояние пары a &lt; b (спека 02b §3.2). Поля и их порядок в хеше — как в таблице спеки, кроме перезарядки
+    /// предложения: у каждой стороны своя (OfferCooldownAtt, OfferCooldownDef вместо одного OfferCooldownUntil).
+    /// </summary>
+    public struct War
+    {
+        public byte Status;
+        /// <summary>Кто объявил; 0 — нет войны.</summary>
+        public byte Attacker;
+        public byte Goal;
+        /// <summary>Пиксель центра района; −1 у репараций и без войны.</summary>
+        public int ClaimCenter;
+        /// <summary>Пикселей района с Core = защитник на момент объявления.</summary>
+        public int ClaimTotal;
+        public int StartTick;
+        public int PreWarAtt, PreWarDef;
+        /// <summary>Секунд подряд выполнено условие цели нападающего / победы обороны.</summary>
+        public short HoldAtt, HoldDef;
+        /// <summary>Кто предложил белый мир; 0 — нет предложения.</summary>
+        public byte OfferFrom;
+        public int OfferUntil;
+        /// <summary>Раньше этого тика нападающий / защитник не может предложить белый мир снова.</summary>
+        public int OfferCooldownAtt, OfferCooldownDef;
+        /// <summary>PeaceKinds: разрешится в начале тика WarSystem.</summary>
+        public byte PendingPeace;
+        public int TruceUntil;
+        /// <summary>Репарации: кто платит кому до TributeUntil; 0 — нет.</summary>
+        public byte TributePayer, TributePayee;
+        public int TributeUntil;
+
+        /// <summary>Защитник войны пары (a, b); 0 — нет войны.</summary>
+        public byte Defender(int a, int b) => Attacker == 0 ? (byte)0 : Attacker == a ? (byte)b : (byte)a;
     }
 
     /// <summary>
@@ -148,6 +210,10 @@ namespace BattlePix.Core
         NativeArray<byte> _inFrontier;
         NativeArray<byte> _edgeMask;
         NativeArray<ushort> _capitalCover;
+        NativeArray<byte> _core;
+        NativeArray<int> _occupiedLen;
+        NativeArray<War> _wars;
+        NativeArray<int> _claimHeldLen;
 
         public int Tick { get; internal set; }
         public RngStreams Rng { get; }
@@ -212,6 +278,12 @@ namespace BattlePix.Core
             _capitalCover = new NativeArray<ushort>(pixels, Allocator.Persistent, NativeArrayOptions.ClearMemory);
             _edgeMask = new NativeArray<byte>(pixels, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             for (int i = 0; i < pixels; i++) _edgeMask[i] = Grid.EdgeMask(i % width, i / width, width, height);
+            _core = new NativeArray<byte>(pixels, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _occupiedLen = new NativeArray<int>(pairs, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            _wars = new NativeArray<War>(nn * nn, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            for (int i = 0; i < _wars.Length; i++) _wars[i] = new War { ClaimCenter = -1 };
+            _claimHeldLen = new NativeArray<int>(nn * nn, Allocator.Persistent, NativeArrayOptions.ClearMemory);
+            PeaceByTimer = new bool[nn * nn];
 
             Rng = new RngStreams(seed);
         }
@@ -239,6 +311,21 @@ namespace BattlePix.Core
         /// <summary>Бит id − 1, если пиксель в круге capitalRadius от столицы живой нации. Производное от столиц.</summary>
         public NativeArray<ushort>.ReadOnly CapitalCover => _capitalCover.AsReadOnly();
         public int NationCount => _nations.Length;
+        /// <summary>Исконный владелец пикселя (02b §3.1). Пиксель занят, если Owner ≠ 0, Core ≠ 0, Owner ≠ Core.</summary>
+        public NativeArray<byte>.ReadOnly Core => _core.AsReadOnly();
+        /// <summary>[holder × (N + 1) + core] — сколько пикселей нации core держит holder (holder ≠ core). Производное.</summary>
+        public NativeArray<int>.ReadOnly OccupiedLen => _occupiedLen.AsReadOnly();
+        /// <summary>Пары [(a − 1) × N + (b − 1)], используются только a &lt; b. Доступ — WarOf(a, b).</summary>
+        public NativeArray<War>.ReadOnly Wars => _wars.AsReadOnly();
+        /// <summary>Пикселей района, которые держит нападающий, по паре как Wars. Считает WarSystem раз в секунду. Производное.</summary>
+        public NativeArray<int>.ReadOnly ClaimHeldLen => _claimHeldLen.AsReadOnly();
+
+        /// <summary>Журнал войны и мира для отчёта и UI. В хеш не входит: это история, а не состояние.</summary>
+        public readonly System.Collections.Generic.List<WarEvent> WarEvents = new System.Collections.Generic.List<WarEvent>();
+        /// <summary>По паре как Wars: белый мир поставил срок maxWarTicks (для журнала). В хеш не входит.</summary>
+        internal bool[] PeaceByTimer;
+        /// <summary>Сколько всего выплачено репараций за партию, в сотых. Для отчёта, в хеш не входит.</summary>
+        public long TributePaid { get; internal set; }
 
         // Доступ на запись — только внутри ядра.
         internal ref NativeArray<byte> OwnerRW => ref _owner;
@@ -256,11 +343,15 @@ namespace BattlePix.Core
         internal ref NativeArray<byte> InFrontierRW => ref _inFrontier;
         internal ref NativeArray<byte> EdgeMaskRW => ref _edgeMask;
         internal ref NativeArray<ushort> CapitalCoverRW => ref _capitalCover;
+        internal ref NativeArray<byte> CoreRW => ref _core;
+        internal ref NativeArray<int> OccupiedLenRW => ref _occupiedLen;
+        internal ref NativeArray<War> WarsRW => ref _wars;
+        internal ref NativeArray<int> ClaimHeldLenRW => ref _claimHeldLen;
 
         public int Index(int x, int y) => y * Width + x;
         public bool InMap(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
 
-        public bool IsLand(int index) => _terrain[index] != (byte)Core.Terrain.Water;
+        public bool IsLand(int index) => _terrain[index] != (byte)BattlePix.Core.Terrain.Water;
 
         public NationState Nation(byte id) => _nations[id - 1];
 
@@ -311,8 +402,38 @@ namespace BattlePix.Core
         /// <summary>Дивизия готова, стоит на фронте и не в пути.</summary>
         public bool OnFront(in Division v) => v.Alive != 0 && v.Front != 0 && v.ReadyTick <= Tick && v.ArriveTick <= Tick;
 
-        /// <summary>На фронте, приказ своей стороны — наступление, и не выдохлась.</summary>
-        public bool Attacking(in Division v) => OnFront(v) && v.Exhausted == 0 && FrontOrderOf(v.Owner, v.Front) == Orders.Attack;
+        /// <summary>На фронте войны (02b §4.1), приказ своей стороны — наступление, и не выдохлась.</summary>
+        public bool Attacking(in Division v) =>
+            OnFront(v) && v.Exhausted == 0 && FrontOrderOf(v.Owner, v.Front) == Orders.Attack && AtWar(v.Owner, v.Front);
+
+        // ---------- война и мир (02b §3.2) ----------
+
+        /// <summary>Индекс пары в Wars: меньший id первым. a, b в 1..N, a ≠ b.</summary>
+        public int WarIndex(int a, int b) => a < b ? (a - 1) * NationCount + (b - 1) : (b - 1) * NationCount + (a - 1);
+
+        bool ValidPair(int a, int b) => a >= 1 && b >= 1 && a <= NationCount && b <= NationCount && a != b && _wars.Length > 0;
+
+        /// <summary>Состояние пары в любом порядке. Вне диапазона — мир.</summary>
+        public War WarOf(int a, int b) => ValidPair(a, b) ? _wars[WarIndex(a, b)] : new War { ClaimCenter = -1 };
+
+        public bool AtWar(int a, int b) => ValidPair(a, b) && _wars[WarIndex(a, b)].Status == WarStatus.War;
+
+        public bool InTruce(int a, int b) => ValidPair(a, b) && _wars[WarIndex(a, b)].Status == WarStatus.Truce;
+
+        /// <summary>Своя цель стороны side в войне a–b выполнена: условие держится ≥ goalHoldSeconds.</summary>
+        public bool GoalFulfilled(int a, int b, int side)
+        {
+            if (!AtWar(a, b)) return false;
+            var war = _wars[WarIndex(a, b)];
+            int need = Rules.War.GoalHoldSeconds;
+            return side == war.Attacker ? war.HoldAtt >= need : war.HoldDef >= need;
+        }
+
+        /// <summary>Пикселей района, которые держит нападающий (на последнюю секунду WarSystem).</summary>
+        public int ClaimHeld(int a, int b) => ValidPair(a, b) ? _claimHeldLen[WarIndex(a, b)] : 0;
+
+        /// <summary>Сколько пикселей нации core держит holder (0..N).</summary>
+        public int Occupied(int holder, int core) => _occupiedLen[holder * (NationCount + 1) + core];
 
         /// <summary>Дивизия ещё готовится.</summary>
         public bool Training(in Division v) => v.Alive != 0 && v.ReadyTick > Tick;
@@ -375,6 +496,10 @@ namespace BattlePix.Core
             if (_inFrontier.IsCreated) _inFrontier.Dispose();
             if (_edgeMask.IsCreated) _edgeMask.Dispose();
             if (_capitalCover.IsCreated) _capitalCover.Dispose();
+            if (_core.IsCreated) _core.Dispose();
+            if (_occupiedLen.IsCreated) _occupiedLen.Dispose();
+            if (_wars.IsCreated) _wars.Dispose();
+            if (_claimHeldLen.IsCreated) _claimHeldLen.Dispose();
         }
     }
 

@@ -42,8 +42,8 @@ namespace BattlePix.Core.Tests
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations.Replace("\"id\": 5", "\"id\": 15"), rules, ai), "ids not contiguous");
             Assert.Throws<System.FormatException>(() => Rules.FromJson("[{\"id\":0,\"name\":\"\",\"color\":\"\"},{\"id\":1,\"name\":\"\",\"color\":\"\"}]", rules, ai),
                 "one nation is not a match");
-            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"format\": 3", "\"format\": 2"), ai), "old rules format");
-            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules, ai.Replace("\"format\": 3", "\"format\": 2")), "old ai format");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"format\": 4", "\"format\": 3"), ai), "old rules format");
+            Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules, ai.Replace("\"format\": 4", "\"format\": 3")), "old ai format");
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"maxDivisionsPerNation\": 32", "\"maxDivisionsPerNation\": 0"), ai));
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"composition\": [3, 0]", "\"composition\": [3]"), ai), "composition length");
             Assert.Throws<System.FormatException>(() => Rules.FromJson(nations, rules.Replace("\"composition\": [3, 0]", "\"composition\": [0, 0]"), ai), "empty composition");

@@ -59,6 +59,12 @@ namespace BattlePix.Core
                 }
             }
 
+            // 02b, правило 1. Забрать выполненное: своя цель в войне выполнена — мир на своих условиях.
+            for (int d = 1; d <= n; d++)
+                if (IsFront(w, self, d) && w.GoalFulfilled(self, d, self)
+                    && WarSystem.ValidatePropose(w, self, d) == RejectReason.None)
+                    return Issue(self, CommandType.ProposePeace, d, 0, out cmd);
+
             // 1. В тыл обескровленную: на фронте, численность ниже rearStrength, на её фронте нет угрозы.
             for (int k = 0; k < maxK; k++)
             {
@@ -111,8 +117,59 @@ namespace BattlePix.Core
                 }
             }
 
+            // 02b, правило 4. Объявление, если своих войн меньше maxOwnWars (подготовка — PR 2).
+            if (Declare(w, self, p, ref rng, out cmd)) return true;
+
             // 6. Набор: танковая под равнину цели, пока её доля среди живых ниже потолка; иначе пехотная.
             return Recruit(w, self, p, target, out cmd);
+        }
+
+        /// <summary>
+        /// 02b §4.9, правило 4: кандидат — сосед в мире (не перемирие) с max ratio (при равенстве меньший id); объявлять,
+        /// если ratio ≥ declareRatio или без своих войн прошло idleWarTicks. Цель: претензии с вероятностью claimsChance.
+        /// </summary>
+        bool Declare(World w, byte self, AiProfile p, ref Pcg32 rng, out Command cmd)
+        {
+            cmd = default;
+            if (WarSystem.OwnWars(w, self) >= p.MaxOwnWars) return false;
+            int c = 0;
+            long best = long.MinValue;
+            for (int d = 1; d <= w.NationCount; d++)
+            {
+                if (d == self || w.Nation((byte)d).Alive == 0 || w.FrontLength(self, d) <= 0) continue;
+                if (w.WarOf(self, d).Status != WarStatus.Peace) continue;
+                long r = DeclareRatio(w, self, d);
+                if (r > best)
+                {
+                    best = r;
+                    c = d;
+                }
+            }
+            if (c == 0) return false;
+            int since = w.Tick - w.Nation(self).OwnWarEndTick;
+            if (best < p.DeclareRatio_bp && since < p.IdleWarTicks) return false;
+            int b = 0;
+            if (rng.NextInt(10000) < p.ClaimsChance_bp)
+            {
+                int center = WarSystem.SuggestClaimCenter(w, self, (byte)c);
+                if (center >= 0) b = center + 1;
+            }
+            if (WarSystem.ValidateDeclare(w, self, c, b) != RejectReason.None) return false;
+            return Issue(self, CommandType.DeclareWar, c, b, out cmd);
+        }
+
+        /// <summary>ratio(c) = Σ своих готовых atk100 по равнине × Strength / max(1, Σ их живых def100 по равнине × Strength), bp.</summary>
+        public static long DeclareRatio(World w, byte self, int c)
+        {
+            long att = 0, def = 0;
+            for (int k = 0; k < w.MaxDivisionsPerNation; k++)
+            {
+                var v = w.DivisionAt(w.DivisionSlot(self, k));
+                if (v.Alive != 0 && v.ReadyTick <= w.Tick) att += DivisionSystem.Attack100(w, v, 0);
+                var e = w.DivisionAt(w.DivisionSlot((byte)c, k));
+                if (e.Alive != 0) def += (long)w.Rules.DivisionDef100(e.Type, 0) * e.Strength_bp / 10000;
+            }
+            return att * 10000 / Max1(def);
         }
 
         /// <summary>Абляция spread: готовую дивизию из тыла — на фронт, где своей обороны на ребро меньше всего; все приказы — наступление.</summary>
@@ -167,7 +224,8 @@ namespace BattlePix.Core
 
         static long Max1(long v) => v > 0 ? v : 1;
 
-        static bool IsFront(World w, byte self, int d) => d != self && w.FrontLength(self, d) > 0 && w.Nation((byte)d).Alive != 0;
+        /// <summary>Фронт войны (02b §4.9): общая граница, сосед жив, пара в войне.</summary>
+        static bool IsFront(World w, byte self, int d) => d != self && w.FrontLength(self, d) > 0 && w.Nation((byte)d).Alive != 0 && w.AtWar(self, d);
 
         /// <summary>Атака всех своих готовых дивизий по рельефу, очки ×100, как если бы все наступали.</summary>
         void FillPotential(World w, byte self)

@@ -74,6 +74,20 @@ namespace BattlePix.Core.Tests
             for (int d = 1; d <= w.NationCount; d++)
                 if (d != id && w.FrontLength(id, d) > 0 && GameCommands.ValidateFrontOrder(w, id, d, 0) == RejectReason.None)
                     options.Add(new Command { Nation = id, Type = CommandType.SetFrontOrder, A = d, B = 1 - w.FrontOrderOf(id, d) });
+            // 02b: объявление (репарации; претензии — если ядро предлагает центр), мир, ответ на предложение.
+            for (int d = 1; d <= w.NationCount; d++)
+            {
+                if (d == id) continue;
+                if (WarSystem.ValidateDeclare(w, id, d, 0) == RejectReason.None)
+                {
+                    int center = rng.NextInt(2) == 0 ? WarSystem.SuggestClaimCenter(w, id, (byte)d) : -1;
+                    options.Add(new Command { Nation = id, Type = CommandType.DeclareWar, A = d, B = center >= 0 ? center + 1 : 0 });
+                }
+                if (WarSystem.ValidatePropose(w, id, d) == RejectReason.None)
+                    options.Add(new Command { Nation = id, Type = CommandType.ProposePeace, A = d });
+                if (WarSystem.ValidateAnswer(w, id, d, 1) == RejectReason.None)
+                    options.Add(new Command { Nation = id, Type = CommandType.AnswerPeace, A = d, B = rng.NextInt(2) });
+            }
             if (options.Count == 0) return null;
             return options[rng.NextInt(options.Count)];
         }

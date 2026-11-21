@@ -1,5 +1,5 @@
 {
-  "format": 3,
+  "format": 4,
   "default": "base",
   "assign": {},
   "profiles": {
@@ -7,19 +7,22 @@
       "thinkIntervalTicks": 10, "spread": false,
       "rearStrength_bp": 3000, "deployStrength_bp": 7000,
       "attackMinRatio_bp": 11000, "threatRatio_bp": 12000, "armorPlainShare_bp": 5500, "armorMaxShare_bp": 5000,
-      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
+      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800,
+      "declareRatio_bp": 12000, "idleWarTicks": 1800, "stageShare_bp": 6000, "maxOwnWars": 1, "claimsChance_bp": 6000, "peaceAfterTicks": 1200
     },
     "spread": {
       "thinkIntervalTicks": 10, "spread": true,
       "rearStrength_bp": 3000, "deployStrength_bp": 7000,
       "attackMinRatio_bp": 11000, "threatRatio_bp": 12000, "armorPlainShare_bp": 5500, "armorMaxShare_bp": 5000,
-      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
+      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800,
+      "declareRatio_bp": 12000, "idleWarTicks": 1800, "stageShare_bp": 6000, "maxOwnWars": 1, "claimsChance_bp": 6000, "peaceAfterTicks": 1200
     },
     "no_armor": {
       "thinkIntervalTicks": 10, "spread": false,
       "rearStrength_bp": 3000, "deployStrength_bp": 7000,
       "attackMinRatio_bp": 11000, "threatRatio_bp": 12000, "armorPlainShare_bp": 1000000, "armorMaxShare_bp": 5000,
-      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800
+      "recruitReserve_c": 0, "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800,
+      "declareRatio_bp": 12000, "idleWarTicks": 1800, "stageShare_bp": 6000, "maxOwnWars": 1, "claimsChance_bp": 6000, "peaceAfterTicks": 1200
     }
   }
 }

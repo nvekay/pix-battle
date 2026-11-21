@@ -2,7 +2,7 @@ using NUnit.Framework;
 
 namespace BattlePix.Core.Tests
 {
-    /// <summary>Мир с правилами: хеш, реплей формата 3, отказ отладочных команд.</summary>
+    /// <summary>Мир с правилами: хеш, реплей формата 5, отказ отладочных команд.</summary>
     public class RulesWorldTests
     {
         [Test]
@@ -44,8 +44,24 @@ namespace BattlePix.Core.Tests
                         s.DivisionsLost = rng.NextInt(1000);
                         s.Divisions = (byte)rng.NextInt(33);
                         s.DiedAtTick = rng.NextInt(3) - 1;
+                        s.OwnWarEndTick = rng.NextInt(100000);
                         nat[i] = s;
                     }
+                    // 02b: Core и все поля Wars.
+                    var core = w.CoreRW;
+                    for (int i = 0; i < core.Length; i++) core[i] = (byte)rng.NextInt(nations + 1);
+                    var wars = w.WarsRW;
+                    for (int i = 0; i < wars.Length; i++)
+                        wars[i] = new War
+                        {
+                            Status = (byte)rng.NextInt(3), Attacker = (byte)rng.NextInt(nations + 1), Goal = (byte)rng.NextInt(3),
+                            ClaimCenter = rng.NextInt(100000) - 1, ClaimTotal = rng.NextInt(2000), StartTick = rng.NextInt(30000),
+                            PreWarAtt = rng.NextInt(20000), PreWarDef = rng.NextInt(20000),
+                            HoldAtt = (short)rng.NextInt(32000), HoldDef = (short)rng.NextInt(32000), OfferFrom = (byte)rng.NextInt(nations + 1),
+                            OfferUntil = rng.NextInt(30000), OfferCooldownAtt = rng.NextInt(30000), OfferCooldownDef = rng.NextInt(30000),
+                            PendingPeace = (byte)rng.NextInt(5), TruceUntil = rng.NextInt(30000), TributePayer = (byte)rng.NextInt(nations + 1),
+                            TributePayee = (byte)rng.NextInt(nations + 1), TributeUntil = rng.NextInt(30000),
+                        };
                     w.Winner = (byte)rng.NextInt(nations + 1);
                     // Хеши сравниваются сразу: случайные дивизии не обязаны быть согласованы для симуляции.
                     Assert.AreEqual(HashManaged.Compute(w), StateHash.Compute(w), $"world {k}: {config.Width}x{config.Height}, {nations} nations");
@@ -86,7 +102,33 @@ namespace BattlePix.Core.Tests
                 ulong h2 = sim.ComputeHash();
                 Assert.AreNotEqual(h1, h2);
                 w.Winner = 3;
-                Assert.AreNotEqual(h2, sim.ComputeHash());
+                ulong h3 = sim.ComputeHash();
+                Assert.AreNotEqual(h2, h3);
+                // 02b: Core, каждое поле Wars пары a < b и OwnWarEndTick входят в хеш.
+                w.CoreRW[w.Nations[0].Capital] = 2;
+                ulong h4 = sim.ComputeHash();
+                Assert.AreNotEqual(h3, h4);
+                int idx = w.WarIndex(1, 2);
+                foreach (System.Func<War, War> change in new System.Func<War, War>[]
+                {
+                    x => { x.Status = 1; return x; }, x => { x.Attacker = 1; return x; }, x => { x.Goal = 1; return x; },
+                    x => { x.ClaimCenter = 7; return x; }, x => { x.ClaimTotal = 7; return x; }, x => { x.StartTick = 7; return x; },
+                    x => { x.PreWarAtt = 7; return x; }, x => { x.PreWarDef = 7; return x; }, x => { x.HoldAtt = 7; return x; },
+                    x => { x.HoldDef = 7; return x; }, x => { x.OfferFrom = 2; return x; }, x => { x.OfferUntil = 7; return x; },
+                    x => { x.OfferCooldownAtt = 7; return x; }, x => { x.OfferCooldownDef = 7; return x; }, x => { x.PendingPeace = 1; return x; },
+                    x => { x.TruceUntil = 7; return x; }, x => { x.TributePayer = 1; return x; }, x => { x.TributePayee = 2; return x; },
+                    x => { x.TributeUntil = 7; return x; },
+                })
+                {
+                    w.WarsRW[idx] = change(w.WarsRW[idx]);
+                    ulong hc = sim.ComputeHash();
+                    Assert.AreNotEqual(h4, hc);
+                    h4 = hc;
+                }
+                var n0 = w.NationsRW[0];
+                n0.OwnWarEndTick = 5;
+                w.NationsRW[0] = n0;
+                Assert.AreNotEqual(h4, sim.ComputeHash());
             }
         }
 
@@ -106,7 +148,7 @@ namespace BattlePix.Core.Tests
         }
 
         [Test]
-        public void ReplayFormat4_WithHuman_RoundTrips()
+        public void ReplayFormat5_WithHuman_RoundTrips()
         {
             var config = TestData.Config();
             var rules = TestData.Rules();
@@ -121,13 +163,22 @@ namespace BattlePix.Core.Tests
                 original = ReplayFile.Capture(sim, "test", 0x42);
             }
             var json = original.ToJson();
-            StringAssert.Contains("\"format\": 4", json);
+            StringAssert.Contains("\"format\": 5", json);
             StringAssert.Contains("\"human\": 1", json);
             var loaded = ReplayFile.FromJson(json);
             Assert.AreEqual(1, loaded.Human);
             var r = ReplayPlayer.Verify(loaded, config, rules);
             Assert.IsTrue(r.Ok, r.Error);
             Assert.AreEqual(5, r.CheckpointsCompared);
+        }
+
+        [Test]
+        public void ReplayFormat4_IsRejected_BeforeDeclaredWar()
+        {
+            const string json = "{\"format\":4,\"build\":\"x\",\"seed\":1,\"dataHash\":\"0x0\",\"ticks\":10,\"tickLimit\":0,\"human\":1,\"commands\":[],\"checkpoints\":[]}";
+            var e = Assert.Throws<UnsupportedReplayFormatException>(() => ReplayFile.FromJson(json));
+            Assert.AreEqual(4, e.Format);
+            StringAssert.Contains("before declared war", e.Message);
         }
 
         [Test]

@@ -69,6 +69,7 @@ namespace BattlePix.Core
             TickLimit = tickLimit;
             World = new World(config.Width, config.Height, rules.NationCount, seed, rules);
             MapGenerator.Generate(World);
+            WarSystem.InitCore(World); // 02b §3.1: Core = Owner после генерации
             FrontSystem.StampCapitals(World);
             FrontSystem.RebuildFrontier(World);
             FrontSystem.RecountFrontLen(World);
@@ -174,6 +175,9 @@ namespace BattlePix.Core
                 case CommandType.RecruitDivision:
                 case CommandType.AssignDivision:
                 case CommandType.SetFrontOrder:
+                case CommandType.DeclareWar:
+                case CommandType.ProposePeace:
+                case CommandType.AnswerPeace:
                     return GameCommands.Validate(World, c);
                 default:
                     return RejectReason.UnknownType;
@@ -192,6 +196,9 @@ namespace BattlePix.Core
                 case CommandType.RecruitDivision:
                 case CommandType.AssignDivision:
                 case CommandType.SetFrontOrder:
+                case CommandType.DeclareWar:
+                case CommandType.ProposePeace:
+                case CommandType.AnswerPeace:
                     GameCommands.Apply(World, c);
                     break;
             }

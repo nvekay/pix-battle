@@ -126,6 +126,118 @@ namespace BattlePix.Core.Tests
                 w.DivisionsRW[w.DivisionSlot(a, 0)] = v;
             }, ContactWarmup);
 
+        // ---------- 02b, acceptance 2: DeclareWar / ProposePeace / AnswerPeace ----------
+
+        static void SetWar(World w, byte a, byte d, Func<War, War> f = null)
+        {
+            Worlds.War(w, a, d);
+            if (f != null) w.WarsRW[w.WarIndex(a, d)] = f(w.WarsRW[w.WarIndex(a, d)]);
+        }
+
+        static int ValidCenter(World w, byte a, byte d)
+        {
+            int c = WarSystem.SuggestClaimCenter(w, a, d);
+            Assert.GreaterOrEqual(c, 0, "no valid claim center on this seed");
+            return c;
+        }
+
+        [Test] public void Declare_TargetSelf() => Rejects(RejectReason.TargetInvalid, w => Cmd(CommandType.DeclareWar, 1, 1));
+        [Test] public void Declare_TargetZero() => Rejects(RejectReason.TargetInvalid, w => Cmd(CommandType.DeclareWar, 1, 0));
+        [Test] public void Declare_TargetOutOfRange() => Rejects(RejectReason.TargetInvalid, w => Cmd(CommandType.DeclareWar, 1, 9));
+        [Test] public void Declare_TargetDead() => Rejects(RejectReason.TargetInvalid, w => Cmd(CommandType.DeclareWar, 1, 2),
+            w => SetNation(w, 2, n => { n.Alive = 0; return n; }));
+        [Test] public void Declare_NoContact_AtStart() => Rejects(RejectReason.NoContact, w => Cmd(CommandType.DeclareWar, 1, 2));
+        [Test] public void Declare_NoContact_AfterWarmup() => Rejects(RejectReason.NoContact,
+            w => { var (a, _) = Contact(w); return Cmd(CommandType.DeclareWar, a, NoContact(w, a)); }, null, ContactWarmup);
+        [Test] public void Declare_AlreadyAtWar() => Rejects(RejectReason.AlreadyAtWar,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.DeclareWar, d, a); },
+            w => { var (a, d) = Contact(w); SetWar(w, a, d); }, ContactWarmup);
+        [Test] public void Declare_TruceActive() => Rejects(RejectReason.TruceActive,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.DeclareWar, a, d); },
+            w =>
+            {
+                var (a, d) = Contact(w);
+                w.WarsRW[w.WarIndex(a, d)] = new War { Status = WarStatus.Truce, ClaimCenter = -1, TruceUntil = w.Tick + 3000 };
+            }, ContactWarmup);
+        [Test] public void Declare_Claim_NegativeB() => Rejects(RejectReason.ClaimInvalid,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.DeclareWar, a, d, -1); }, null, ContactWarmup);
+        [Test] public void Declare_Claim_OutOfMap() => Rejects(RejectReason.ClaimInvalid,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.DeclareWar, a, d, w.PixelCount + 1); }, null, ContactWarmup);
+        [Test] public void Declare_Claim_NotTheirLand() => Rejects(RejectReason.ClaimInvalid,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.DeclareWar, a, d, w.Nation(a).Capital + 1); }, null, ContactWarmup);
+        [Test] public void Declare_Claim_TooFar() => Rejects(RejectReason.ClaimInvalid,
+            w =>
+            {
+                var (a, d) = Contact(w);
+                w.Rules.War.ClaimMaxDepth = 0; // столица не на общей границе
+                Assert.AreEqual(ClaimCheck.TooFar, WarSystem.CheckClaim(w, a, d, w.Nation(d).Capital, out _));
+                return Cmd(CommandType.DeclareWar, a, d, w.Nation(d).Capital + 1);
+            }, null, ContactWarmup);
+        [Test] public void Declare_Claim_TouchesCapital() => Rejects(RejectReason.ClaimInvalid,
+            w =>
+            {
+                var (a, d) = Contact(w);
+                w.Rules.War.ClaimMaxDepth = 100000;
+                Assert.AreEqual(ClaimCheck.TouchesCapital, WarSystem.CheckClaim(w, a, d, w.Nation(d).Capital, out _));
+                return Cmd(CommandType.DeclareWar, a, d, w.Nation(d).Capital + 1);
+            }, null, ContactWarmup);
+        [Test] public void Declare_Claim_TooSmall() => Rejects(RejectReason.ClaimInvalid,
+            w =>
+            {
+                var (a, d) = Contact(w);
+                int c = ValidCenter(w, a, d);
+                w.Rules.War.ClaimMinPixels = 100000;
+                Assert.AreEqual(ClaimCheck.TooSmall, WarSystem.CheckClaim(w, a, d, c, out _));
+                return Cmd(CommandType.DeclareWar, a, d, c + 1);
+            }, null, ContactWarmup);
+
+        [Test] public void Propose_TargetInvalid() => Rejects(RejectReason.TargetInvalid, w => Cmd(CommandType.ProposePeace, 1, 1));
+        [Test] public void Propose_NotAtWar() => Rejects(RejectReason.NotAtWar,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.ProposePeace, a, d); }, null, ContactWarmup);
+        [Test] public void Propose_NotAtWar_InTruce() => Rejects(RejectReason.NotAtWar,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.ProposePeace, a, d); },
+            w =>
+            {
+                var (a, d) = Contact(w);
+                w.WarsRW[w.WarIndex(a, d)] = new War { Status = WarStatus.Truce, ClaimCenter = -1, TruceUntil = w.Tick + 3000 };
+            }, ContactWarmup);
+        [Test] public void Propose_PeaceCooldown() => Rejects(RejectReason.PeaceCooldown,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.ProposePeace, a, d); },
+            w => { var (a, d) = Contact(w); SetWar(w, a, d, x => { x.OfferCooldownAtt = w.Tick + 600; return x; }); }, ContactWarmup);
+
+        [Test] public void Answer_TargetInvalid() => Rejects(RejectReason.TargetInvalid, w => Cmd(CommandType.AnswerPeace, 1, 9, 1));
+        [Test] public void Answer_NotAtWar() => Rejects(RejectReason.NotAtWar,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.AnswerPeace, a, d, 1); }, null, ContactWarmup);
+        [Test] public void Answer_NoOffer() => Rejects(RejectReason.NoOffer,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.AnswerPeace, a, d, 1); },
+            w => { var (a, d) = Contact(w); SetWar(w, a, d); }, ContactWarmup);
+        [Test] public void Answer_NoOffer_Expired() => Rejects(RejectReason.NoOffer,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.AnswerPeace, a, d, 1); },
+            w => { var (a, d) = Contact(w); SetWar(w, a, d, x => { x.OfferFrom = d; x.OfferUntil = w.Tick; return x; }); }, ContactWarmup);
+        [Test] public void Answer_OrderInvalid() => Rejects(RejectReason.OrderInvalid,
+            w => { var (a, d) = Contact(w); return Cmd(CommandType.AnswerPeace, a, d, 2); },
+            w => { var (a, d) = Contact(w); SetWar(w, a, d, x => { x.OfferFrom = d; x.OfferUntil = w.Tick + 100; return x; }); }, ContactWarmup);
+
+        /// <summary>02b §3.3: первая команда, поставившая PendingPeace, выигрывает; следующие команды мира по паре в этом тике — NotAtWar.</summary>
+        [Test]
+        public void SecondPeaceCommand_SameTick_NotAtWar()
+        {
+            using (var sim = TestData.IdleMatch(3))
+            {
+                TestUtil.Run(sim, ContactWarmup);
+                var w = sim.World;
+                var (a, d) = Contact(w);
+                SetWar(w, a, d, x => { x.OfferFrom = d; x.OfferUntil = w.Tick + 100; return x; });
+                sim.Enqueue(new Command { Tick = w.Tick, Nation = a, Type = CommandType.AnswerPeace, A = d, B = 1 });
+                sim.Enqueue(new Command { Tick = w.Tick, Nation = a, Type = CommandType.ProposePeace, A = d });
+                sim.Enqueue(new Command { Tick = w.Tick, Nation = d, Type = CommandType.ProposePeace, A = a });
+                sim.Step();
+                Assert.AreEqual(2, sim.Rejected.Count);
+                foreach (var r in sim.Rejected) Assert.AreEqual(RejectReason.NotAtWar, r.Reason);
+                Assert.AreEqual(WarStatus.Truce, w.WarOf(a, d).Status, "white peace resolves in the same tick, right after the commands");
+            }
+        }
+
         [Test]
         public void RulesDisabled_InFoundationWorld()
         {
@@ -135,6 +247,7 @@ namespace BattlePix.Core.Tests
                 {
                     CommandType.Recruit, CommandType.BuildFort, CommandType.Strike, CommandType.RecruitUnit, CommandType.AssignFormation,
                     CommandType.SetOrder, CommandType.RecruitDivision, CommandType.AssignDivision, CommandType.SetFrontOrder,
+                    CommandType.DeclareWar, CommandType.ProposePeace, CommandType.AnswerPeace,
                 };
                 foreach (var t in types)
                     sim.Enqueue(new Command { Tick = 0, Type = t, Nation = 1, A = 0 });
@@ -171,6 +284,15 @@ namespace BattlePix.Core.Tests
             Assert.AreEqual(22, (byte)RejectReason.DivisionInvalid);
             Assert.AreEqual(23, (byte)RejectReason.DivisionLimit);
             Assert.AreEqual(24, (byte)RejectReason.DivisionTypeInvalid);
+            Assert.AreEqual(11, (byte)CommandType.DeclareWar);
+            Assert.AreEqual(12, (byte)CommandType.ProposePeace);
+            Assert.AreEqual(13, (byte)CommandType.AnswerPeace);
+            Assert.AreEqual(25, (byte)RejectReason.NotAtWar);
+            Assert.AreEqual(26, (byte)RejectReason.AlreadyAtWar);
+            Assert.AreEqual(27, (byte)RejectReason.TruceActive);
+            Assert.AreEqual(28, (byte)RejectReason.ClaimInvalid);
+            Assert.AreEqual(29, (byte)RejectReason.NoOffer);
+            Assert.AreEqual(30, (byte)RejectReason.PeaceCooldown);
             Assert.AreEqual(2, (byte)EndReason.Conquest);
             Assert.AreEqual(4, (byte)EndReason.HumanDefeated);
             Assert.AreEqual(1, (byte)Terrain.Land);
