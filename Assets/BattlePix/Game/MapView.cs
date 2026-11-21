@@ -167,6 +167,10 @@ namespace BattlePix.Game
             _material.SetFloat(MarkerCountId, n);
         }
 
+        /// <summary>Центр пикселя карты в координатах мира.</summary>
+        public Vector3 PixelToWorld(float x, float y) =>
+            transform.position + new Vector3(x + 0.5f - Width * 0.5f, y + 0.5f - Height * 0.5f, 0f);
+
         /// <summary>Мировая точка → пиксель карты. false, если мимо карты.</summary>
         public bool WorldToPixel(Vector3 worldPos, out int x, out int y)
         {

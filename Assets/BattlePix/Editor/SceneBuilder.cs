@@ -23,9 +23,9 @@ namespace BattlePix.Editor
         const string UxmlPath = Root + "/UI/Game.uxml";
         const string ShaderName = "BattlePix/OwnerPalette";
 
-        // Карта 512×256 + место под панели; Pixel Perfect масштабирует целым множителем.
-        const int RefResolutionX = 640;
-        const int RefResolutionY = 360;
+        // Карта 512×256 + место под панели справа и снизу (спека 01b §10); Pixel Perfect масштабирует целым множителем.
+        const int RefResolutionX = 800;
+        const int RefResolutionY = 450;
 
         [MenuItem("BattlePix/Rebuild Main Scene")]
         public static void Build()
@@ -112,10 +112,11 @@ namespace BattlePix.Editor
                 ps = ScriptableObject.CreateInstance<PanelSettings>();
                 AssetDatabase.CreateAsset(ps, PanelSettingsPath);
             }
-            // Раздел 8 спеки: Constant Physical Size, Reference DPI 160. 44 единицы ≈ 7 мм ≈ 44 pt на iOS.
-            ps.scaleMode = PanelScaleMode.ConstantPhysicalSize;
-            ps.referenceDpi = 160;
-            ps.fallbackDpi = 160;
+            // UI под ПК (спека 01b §10): масштаб от экрана, эталон 1920×1080. Тач и физический размер — при мобильном порте.
+            ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            ps.referenceResolution = new Vector2Int(1920, 1080);
+            ps.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
+            ps.match = 0.5f;
             ps.themeStyleSheet = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(ThemePath);
             if (ps.themeStyleSheet == null) throw new FileNotFoundException(ThemePath);
             EditorUtility.SetDirty(ps);

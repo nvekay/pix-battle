@@ -12,8 +12,7 @@ namespace BattlePix.Game
 {
     /// <summary>
     /// Адаптер игры: грузит данные, крутит Simulation по TickClock, отдаёт мир рендеру между тиками,
-    /// связывает HUD, плашки, уведомления и экран конца. Переходный UI PR 2 переделки (спека 01b): кнопки управляют
-    /// первым соединением, клик по соседу назначает его на фронт. Панели «Фронты» и «Соединения» — PR 4.
+    /// раскладывает карту под панели, отдаёт HUD, панели фронтов и соединений (GameHud), экран конца и реплей.
     /// Сам мир не меняет: только команды человека через Simulation.EnqueueFromUi.
     /// </summary>
     public sealed class GameBootstrap : MonoBehaviour
@@ -36,10 +35,7 @@ namespace BattlePix.Game
         ulong _dataHash;
 
         bool _endShown;
-
-        // Для уведомлений: состояние прошлого кадра.
-        bool[] _prevAlive;
-        byte[] _prevFront;
+        GameHud _hud;
 
         // Метрики для строки отладки.
         readonly Stopwatch _tickWatch = new Stopwatch();
@@ -50,12 +46,11 @@ namespace BattlePix.Game
         float _nextUiUpdate;
 
         // UI
-        Label _status, _pixelInfo, _tip, _toast, _modeText;
-        Label _hudGold, _hudIncome, _hudArmy, _hudLand, _hudTimer;
+        Label _status, _pixelInfo, _toast;
         Label _endTitle, _endReason, _endStats;
         TextField _seedField;
-        Button _btnPause, _btnX1, _btnX2, _btnX4, _btnRecruit, _btnFort, _btnStrike;
-        VisualElement _mapArea, _debugPanel, _modeBar, _endScreen;
+        Button _btnPause, _btnX1, _btnX2, _btnX4;
+        VisualElement _mapArea, _debugPanel, _endScreen;
         float _toastHideAt;
 
         static readonly NumberFormatInfo Ru = new NumberFormatInfo { NumberDecimalSeparator = ",", NegativeSign = "−" };
@@ -78,6 +73,7 @@ namespace BattlePix.Game
             _palette = NationInfo.BuildPalette(nations);
             _names = new NationNames(nations);
             mapView.Init(_config.Width, _config.Height, _palette);
+            _hud = new GameHud(uiDocument.rootVisualElement, _rules, _config, _names, _palette, mapView, mainCamera, t => ShowToast(t));
             // Сид новой партии — от времени запуска (адаптер, не ядро). Бенч и отладка задают его явно.
             ulong seed = TryGetArg("-seed", out var s) ? ParseSeed(s) : TryGetArg("-bench", out _) ? ParseSeed(defaultSeed) : TimeSeed();
             StartNewMatch(seed);
@@ -131,6 +127,11 @@ namespace BattlePix.Game
 
             if (TryGetArg("-benchShot", out var shot))
             {
+                _clock.Pause();
+                _hud.ShowFirstFrontForShot();
+                _hud.UpdateMarkers(Time.unscaledTime + 10f);
+                yield return null;
+                yield return null;
                 ScreenCapture.CaptureScreenshot(shot);
                 yield return new WaitForSecondsRealtime(1f);
             }
@@ -185,11 +186,9 @@ namespace BattlePix.Game
             _msPerTickAvg = 0;
             _endShown = false;
             _seedField.value = seed.ToString(CultureInfo.InvariantCulture);
-            HidePanels();
             _endScreen.AddToClassList("hidden");
             mapView.BeginMatch(_sim.World, Human);
-            SnapshotEvents();
-            UpdateHud();
+            _hud.BeginMatch(_sim);
         }
 
         void Update()
@@ -213,8 +212,13 @@ namespace BattlePix.Game
             mapView.UploadIfDirty(w, now);
             mapView.SetMarkers(w);
             mapView.SetStrikeMask(0);
-            mapView.SetFocusNation(FirstFormation().Front);
-            if (ticks > 0) CheckEvents();
+            PlaceCamera();
+            _hud.UpdateMarkers(now);
+            if (ticks > 0) _hud.CheckEvents();
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            var mouse = UnityEngine.InputSystem.Mouse.current;
+            if ((kb != null && kb.escapeKey.wasPressedThisFrame) || (mouse != null && mouse.rightButton.wasPressedThisFrame))
+                _hud.Cancel();
 
             if (now - _tpsWindowStart >= 1f)
             {
@@ -225,7 +229,7 @@ namespace BattlePix.Game
             if (now >= _nextUiUpdate)
             {
                 _nextUiUpdate = now + 0.25f;
-                UpdateHud();
+                _hud.Refresh();
                 UpdateStatus();
             }
             if (_toastHideAt > 0 && now >= _toastHideAt)
@@ -234,6 +238,21 @@ namespace BattlePix.Game
                 _toastHideAt = 0;
             }
             if (w.IsOver && !_endShown) ShowEnd();
+        }
+
+        /// <summary>
+        /// Карта прижата к левому верхнему углу под HUD: справа место под «Фронты», снизу — под «Соединения».
+        /// Pixel Perfect Camera задаёт размер, здесь только сдвиг на целые юниты.
+        /// </summary>
+        void PlaceCamera()
+        {
+            if (mainCamera == null) return;
+            float halfH = mainCamera.orthographicSize, halfW = halfH * mainCamera.aspect;
+            float topUnits = 70f / Screen.height * 2f * halfH; // HUD ~ 64 px
+            float x = Mathf.Round(halfW - 8f - mapView.Width * 0.5f);
+            float y = Mathf.Round(mapView.Height * 0.5f + topUnits - halfH);
+            var p = mainCamera.transform.position;
+            if (p.x != x || p.y != y) mainCamera.transform.position = new Vector3(x, y, p.z);
         }
 
         void OnApplicationFocus(bool hasFocus)
@@ -251,40 +270,6 @@ namespace BattlePix.Game
             _sim = null;
         }
 
-        // ---------- уведомления ----------
-
-        void SnapshotEvents()
-        {
-            var w = _sim.World;
-            int n = w.NationCount;
-            _prevAlive = new bool[n];
-            _prevFront = new byte[w.Formations.Length];
-            for (int i = 0; i < n; i++) _prevAlive[i] = w.Nations[i].Alive != 0;
-            for (int i = 0; i < _prevFront.Length; i++) _prevFront[i] = w.Formations[i].Front;
-        }
-
-        /// <summary>Уведомления переходного UI: фронт закрылся и соединение ушло в тыл, пала чья-то столица.</summary>
-        void CheckEvents()
-        {
-            var w = _sim.World;
-            int n = w.NationCount, maxF = w.MaxFormationsPerNation;
-            for (int k = 0; k < maxF; k++)
-            {
-                int slot = w.FormationSlot(Human, k);
-                var f = w.Formations[slot];
-                byte was = _prevFront[slot];
-                if (f.Alive != 0 && was != 0 && f.Front == 0 && (w.FrontLength(Human, was) <= 0 || w.Nation(was).Alive == 0))
-                    ShowToast($"Закрылся фронт: {_names.Nominative(was)}, {k + 1}-е в тылу");
-                _prevFront[slot] = f.Front;
-            }
-            for (int d = 1; d <= n; d++)
-            {
-                bool alive = w.Nations[d - 1].Alive != 0;
-                if (_prevAlive[d - 1] && !alive && d != Human) ShowToast($"Пала столица {_names.Genitive(d)}");
-                _prevAlive[d - 1] = alive;
-            }
-        }
-
         // ---------- UI ----------
 
         void BindUi()
@@ -292,14 +277,7 @@ namespace BattlePix.Game
             var root = uiDocument.rootVisualElement;
             _status = root.Q<Label>("status");
             _pixelInfo = root.Q<Label>("pixel-info");
-            _tip = root.Q<Label>("tip");
             _toast = root.Q<Label>("toast");
-            _modeText = root.Q<Label>("mode-text");
-            _hudGold = root.Q<Label>("hud-gold");
-            _hudIncome = root.Q<Label>("hud-income");
-            _hudArmy = root.Q<Label>("hud-army");
-            _hudLand = root.Q<Label>("hud-land");
-            _hudTimer = root.Q<Label>("hud-timer");
             _endTitle = root.Q<Label>("end-title");
             _endReason = root.Q<Label>("end-reason");
             _endStats = root.Q<Label>("end-stats");
@@ -307,16 +285,12 @@ namespace BattlePix.Game
             _seedField.value = defaultSeed;
             _mapArea = root.Q<VisualElement>("map-area");
             _debugPanel = root.Q<VisualElement>("debug-panel");
-            _modeBar = root.Q<VisualElement>("mode-bar");
             _endScreen = root.Q<VisualElement>("end-screen");
 
             _btnPause = root.Q<Button>("btn-pause");
             _btnX1 = root.Q<Button>("btn-x1");
             _btnX2 = root.Q<Button>("btn-x2");
             _btnX4 = root.Q<Button>("btn-x4");
-            _btnRecruit = root.Q<Button>("btn-recruit");
-            _btnFort = root.Q<Button>("btn-fort");
-            _btnStrike = root.Q<Button>("btn-strike");
 
             _btnPause.clicked += () => { _clock?.Pause(); SetSpeedButtons(0); };
             _btnX1.clicked += () => SetSpeed(1);
@@ -332,24 +306,10 @@ namespace BattlePix.Game
             root.Q<Button>("btn-new").clicked += OnNewMatchFromField;
             root.Q<Button>("btn-save").clicked += OnSaveReplay;
 
-            _btnRecruit.clicked += () => OnRecruit(UnitTypes.Infantry);
-            _btnFort.clicked += () => OnRecruit(UnitTypes.Armor);
-            _btnStrike.clicked += OnToggleOrder;
-
             root.Q<Button>("btn-again").clicked += () => StartNewMatch(TimeSeed());
             root.Q<Button>("btn-same").clicked += () => StartNewMatch(_sim.Seed);
             root.Q<Button>("btn-end-save").clicked += OnSaveReplay;
 
-            // Плашка и тап-подсказка закрываются любым тапом мимо них.
-            root.RegisterCallback<PointerDownEvent>(evt =>
-            {
-                bool panelOpen = !_pixelInfo.ClassListContains("hidden") || !_tip.ClassListContains("hidden");
-                if (panelOpen && evt.target != _pixelInfo && evt.target != _tip)
-                {
-                    HidePanels();
-                    if (evt.target == _mapArea) evt.StopPropagation();
-                }
-            }, TrickleDown.TrickleDown);
             _mapArea.RegisterCallback<PointerDownEvent>(OnMapTap);
         }
 
@@ -367,82 +327,6 @@ namespace BattlePix.Game
             _btnX4?.EnableInClassList("active", speed == 4);
         }
 
-        string Gold(long c) => (c / 100).ToString(CultureInfo.InvariantCulture);
-        string PerSec(long c) => (c >= 0 ? "+" : "") + (c / 100.0).ToString("0.0", Ru);
-
-        /// <summary>Первое соединение человека (слот 0): им управляют кнопки переходного UI.</summary>
-        Formation FirstFormation() => _sim.World.FormationAt(_sim.World.FormationSlot(Human, 0));
-
-        void UpdateHud()
-        {
-            var w = _sim.World;
-            var me = w.Nation(Human);
-            var units = _rules.Units;
-            int net = EconomySystem.NetIncome(w, Human);
-            long upkeep = me.Alive != 0 ? FormationSystem.Upkeep(w, Human) : 0;
-            long reinforce = me.Alive != 0 ? FormationSystem.ReinforceDemand(w, Human) : 0;
-            _hudGold.text = "Золото " + Gold(me.Gold);
-            _hudIncome.text = PerSec(net - reinforce) + "/с";
-            _hudArmy.text = $"{me.Battalions} бат. · {PerSec(-upkeep)}/с" + (reinforce > 0 ? $" · пополнение {PerSec(-reinforce)}/с" : "");
-            _hudLand.text = string.Format(CultureInfo.InvariantCulture, "{0}% / {1}%",
-                w.TotalLand > 0 ? (long)me.Pixels * 100 / w.TotalLand : 0, _rules.End.VictoryShare_bp / 100);
-            int left = Math.Max(0, _rules.End.TimeoutTicks - w.Tick) / _config.TicksPerSecond;
-            _hudTimer.text = $"{left / 60:00}:{left % 60:00}";
-
-            var f = FirstFormation();
-            _btnRecruit.text = "+ П " + Gold(units[UnitTypes.Infantry].Cost_c);
-            _btnFort.text = "+ Б " + Gold(units[UnitTypes.Armor].Cost_c);
-            _btnStrike.text = f.Order == Orders.Attack ? "1-е: наступает" : "1-е: держит";
-            _btnRecruit.EnableInClassList("disabled-look", RecruitReason(UnitTypes.Infantry) != RejectReason.None);
-            _btnFort.EnableInClassList("disabled-look", RecruitReason(UnitTypes.Armor) != RejectReason.None);
-            _btnStrike.EnableInClassList("active", f.Order == Orders.Attack);
-        }
-
-        RejectReason RecruitReason(byte type)
-        {
-            var w = _sim.World;
-            if (w.Nation(Human).Alive == 0) return RejectReason.NationInvalid;
-            return GameCommands.ValidateRecruit(w, Human, 0, type);
-        }
-
-        /// <summary>Тексты причин отказа (таблица раздела 10 спеки 01b).</summary>
-        string ReasonText(RejectReason r, int cost)
-        {
-            var w = _sim.World;
-            switch (r)
-            {
-                case RejectReason.NotEnoughGold:
-                {
-                    long missing = cost - w.Nation(Human).Gold;
-                    int net = EconomySystem.NetIncome(w, Human);
-                    string when = net > 0 ? $"это ~{(missing + net - 1) / net} с" : "доход не покрывает содержание";
-                    return $"Не хватает {(missing + 99) / 100} золота, {when}";
-                }
-                case RejectReason.ArmyCap: return $"Армия на пределе: {_rules.Economy.BattalionCap} батальонов";
-                case RejectReason.FormationFull: return $"В соединении уже {w.MaxBattalions} батальонов";
-                case RejectReason.FormationLimit: return "Больше соединений не создать";
-                case RejectReason.NoContact: return "С ними нет общей границы";
-                case RejectReason.AlreadyThere: return "Соединение уже стоит на этом фронте";
-                case RejectReason.TargetInvalid: return "Фронт — только с соседней нацией";
-                case RejectReason.NationInvalid: return "Наша столица пала";
-                default: return r.ToString();
-            }
-        }
-
-        void OnRecruit(byte type)
-        {
-            if (_sim.World.IsOver) return;
-            var r = RecruitReason(type);
-            if (r != RejectReason.None) { ShowTip(ReasonText(r, _rules.Units[type].Cost_c)); return; }
-            _sim.EnqueueFromUi(CommandType.RecruitUnit, Human, 0, type);
-        }
-
-        void OnToggleOrder()
-        {
-            if (_sim.World.IsOver || _sim.World.Nation(Human).Alive == 0) return;
-            _sim.EnqueueFromUi(CommandType.SetOrder, Human, 0, 1 - FirstFormation().Order);
-        }
-
         void OnMapTap(PointerDownEvent evt)
         {
             if (_sim == null || mainCamera == null || _sim.World.IsOver) return;
@@ -457,24 +341,11 @@ namespace BattlePix.Game
                 -mainCamera.transform.position.z);
             var worldPos = mainCamera.ScreenToWorldPoint(screen);
             bool onMap = mapView.WorldToPixel(worldPos, out int x, out int y);
-            var w = _sim.World;
-
-            // Клик по соседу — 1-е соединение на фронт с ним; по своей земле с зажатым Shift — в тыл.
-            if (onMap && w.Nation(Human).Alive != 0)
-            {
-                int i = w.Index(x, y);
-                int o = w.IsLand(i) ? w.Owner[i] : 0;
-                if (o != 0 && o != Human)
-                {
-                    var r = GameCommands.ValidateAssign(w, Human, 0, o);
-                    if (r == RejectReason.None) _sim.EnqueueFromUi(CommandType.AssignFormation, Human, 0, o);
-                    else if (r != RejectReason.AlreadyThere) { ShowTip(ReasonText(r, 0)); return; }
-                }
-                else if (o == Human && evt.shiftKey && FirstFormation().Front != 0)
-                    _sim.EnqueueFromUi(CommandType.AssignFormation, Human, 0, 0);
-            }
-
-            ShowPixelInfo(onMap ? InfoText(w, x, y) : "Мимо карты", evt.localPosition);
+            if (evt.button != 0) return; // ПКМ — отмена, её ловит Update
+            if (_hud.OnMapClick(onMap, x, y)) return;
+            _hud.HidePanels();
+            _pixelInfo.text = InfoText(_sim.World, x, y);
+            _pixelInfo.RemoveFromClassList("hidden");
         }
 
         string InfoText(World w, int x, int y)
@@ -482,58 +353,18 @@ namespace BattlePix.Game
             int i = w.Index(x, y);
             if (!w.IsLand(i)) return "Вода";
 
+            string terrain = TerrainNames[Math.Min(2, Math.Max(0, w.Terrain[i] - 1))];
             int o = w.Owner[i];
-            if (o == 0) return "Ничья земля";
+            if (o == 0) return "Ничья земля · " + terrain;
             if (o == Human)
             {
                 var me = w.Nation(Human);
-                return $"Наша земля · доход {PerSec(EconomySystem.NetIncome(w, Human))}/с · батальонов {me.Battalions} · соединений {me.Formations}";
+                return $"Наша земля · {terrain} · батальонов {me.Battalions} · соединений {me.Formations}";
             }
-            return FrontText(w, (byte)o, i);
+            return _names.Nominative(o) + " · " + terrain;
         }
 
         static readonly string[] TerrainNames = { "равнина", "холмы", "горы" };
-
-        /// <summary>Плашка фронта: те же AttPow/DefPow из ядра (01b §5.1), что двигают границу.</summary>
-        string FrontText(World w, byte o, int pixel)
-        {
-            string name = _names.Nominative(o);
-            int len = w.FrontLength(Human, o);
-            if (len <= 0) return $"{name} · с нами нет общей границы";
-            var sb = new System.Text.StringBuilder();
-            sb.Append($"{name} · фронт {len} px");
-            sb.Append("\nМы: атака " + Triple(tr => w.AttPow(Human, o, tr)) + " · оборона " + Triple(tr => w.DefPow(Human, o, tr)));
-            sb.Append("\nОни: атака " + Triple(tr => w.AttPow(o, Human, tr)) + " · оборона " + Triple(tr => w.DefPow(o, Human, tr)));
-            sb.Append("\nрельеф их земли " + Triple(tr => w.FrontTerrainLength(Human, o, tr) * 100 / len) + "%");
-            int tPix = w.Terrain[pixel] - 1;
-            if (tPix >= 0 && tPix < TerrainNames.Length) sb.Append(" · здесь " + TerrainNames[tPix]);
-            if ((w.CapitalCover[pixel] & (1 << (o - 1))) != 0) sb.Append($" · их столица рядом ×{_rules.Front.CapitalMult_bp / 10000}");
-            int net = w.NetFlips10s(Human, o);
-            sb.Append($"\nза 10 с: {(net >= 0 ? "+" : "−")}{Math.Abs(net)} px");
-            return sb.ToString();
-        }
-
-        static string Triple(Func<int, int> f) => $"{f(0)} / {f(1)} / {f(2)}";
-
-        void ShowPixelInfo(string text, Vector3 local)
-        {
-            _pixelInfo.text = text;
-            _pixelInfo.style.left = Mathf.Max(0, local.x + 12);
-            _pixelInfo.style.top = Mathf.Max(0, local.y - 60);
-            _pixelInfo.RemoveFromClassList("hidden");
-        }
-
-        void ShowTip(string text)
-        {
-            _tip.text = text;
-            _tip.RemoveFromClassList("hidden");
-        }
-
-        void HidePanels()
-        {
-            _pixelInfo?.AddToClassList("hidden");
-            _tip?.AddToClassList("hidden");
-        }
 
         void ShowEnd()
         {
