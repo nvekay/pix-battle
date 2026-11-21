@@ -166,6 +166,7 @@ public enum RejectReason : byte {
 5. Если суши после шага 4 меньше `minLandShare_bp` (4 000), повторить с шага 1, продолжая поток `MapGen`. Не больше 8 попыток, потом взять лучшую и пометить в отчёте `mapRetryFail`.
 6. **Столицы.** Кандидат — пиксель суши, от которого до воды не меньше `capitalCoastDist` (6) px. Первая столица — случайный кандидат. Каждая следующая — лучший из 64 случайных кандидатов по максимуму минимального расстояния до уже поставленных (квадраты, без корней).
 7. **Честность стартов.** Многоисточниковый BFS по суше от всех столиц (порядок источников — по id), размер «ячейки» каждой нации. Если `max/min > startFairnessMax_bp` (25 000, то есть 2,5×), переставить все столицы заново (шаг 6). Не больше 16 попыток, потом взять лучшую по отношению и пометить `unfairStart`.
+6½. **Перемешать id.** Какой нации какая столица достаётся — перестановка Фишера — Йетса из потока `MapGen`, иначе id совпадает с порядком расстановки (правка по ревью баланса 2026-11-20).
 8. **Стартовые пятна.** Каждой нации все пиксели суши в круге `startRadius` (8) px вокруг столицы, если они ещё ничьи (порядок наций по id). Это около 200 px.
 9. Стартовые ресурсы: `startGold` (300 золота), `startBattalions` (3).
 
@@ -255,7 +256,7 @@ Gold    += income_c − upkeep_c
 1. **Крепость под давлением.** Худший фронт `d` = минимум `NetFlips10s(self, d)`. Если он ≤ `−fortLossThresholdPx`, на этом фронте нет своей крепости (ни один пограничный пиксель нации на фронте с `d`, найденный в выборке, не накрыт своим битом) и хватает золота — `BuildFort`. Пиксель: до 32 попыток взять случайный (поток `Ai`) пиксель `Frontier` своей нации, соседний с `d`, сдвинуть его на `fortDepthPx` (6) по прямой к своей столице (Брезенхем, целые), остановиться на последнем своём пикселе. Первый валидный по 4.4 идёт в команду.
 2. **Копить на крепость.** Если пункт 1 сработал бы, но не хватает золота, — ничего не делать (так ИИ сам «не набирает армию, потому что золото нужнее»).
 3. **Набор.** Если `Battalions × 1000 < targetDensity_milli × warLen / 100` (цель на 100 рёбер войны) или `Battalions < minBattalions`, и хватает золота с запасом `recruitReserve_c` — `Recruit`.
-4. **Удар.** Если `Battalions ≥ strikeMinBattalions` и сейчас нет своего активного удара: для каждого соседа `d` `score_bp = pow(self,d) × 10000 / pow(d,self)`, плюс `leaderBonus_bp`, если доля `d` от `TotalLand` ≥ `leaderShare_bp`, плюс шум `Ai.NextInt(noise_bp + 1)`. Если лучший `score_bp ≥ strikeMinScore_bp` — `Strike` по нему.
+4. **Удар.** Если `Battalions × 1000 ≥ targetDensity_milli × warLen / 100 + strikeSurplusBattalions × 1000` (бить только из излишка), с последнего своего удара прошло ≥ `strikeCooldownTicks` (`NationState.LastStrikeTick`) и сейчас нет своего активного удара: для каждого соседа `d` `score_bp = pow(self,d) × 10000 / pow(d,self)`, плюс `leaderBonus_bp`, если доля `d` от `TotalLand` ≥ `leaderShare_bp`, плюс шум `Ai.NextInt(noise_bp + 1)`. Если лучший `score_bp ≥ strikeMinScore_bp` — `Strike` по нему.
 
 Пункт 4 с `leaderBonus` — тормоз snowball из брифа (догпайл на лидера). Он работает через ту же команду, отдельной логики «против лидера» нет.
 
@@ -388,10 +389,10 @@ Gold    += income_c − upkeep_c
   "profiles": {
     "base":        { "thinkIntervalTicks": 10, "fortLossThresholdPx": 6, "fortDepthPx": 6,
                      "targetDensity_milli": 4000, "minBattalions": 3, "recruitReserve_c": 0,
-                     "strikeMinBattalions": 5, "strikeMinScore_bp": 11000,
-                     "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 1500 },
+                     "strikeSurplusBattalions": 2, "strikeMinScore_bp": 13000, "strikeCooldownTicks": 600,
+                     "leaderShare_bp": 2500, "leaderBonus_bp": 4000, "noise_bp": 800 },
     "no_forts":    { "...": "как base, fortLossThresholdPx = 1000000" },
-    "no_strikes":  { "...": "как base, strikeMinBattalions = 1000000" }
+    "no_strikes":  { "...": "как base, strikeSurplusBattalions = 1000000" }
   }
 }
 ```
@@ -503,3 +504,13 @@ Gold    += income_c − upkeep_c
 ## 14. Out of scope
 
 Города и золото с городов, рельеф кроме воды и суши, мир, союзы, вассалы, цели войны, объявление войны (в прототипе контакт = война), бунты и перерастяжение, распад как исход, характеры ИИ (кроме профилей для абляций), туман войны, геосегменты фронта, ручное перемещение армий, типы войск, тиры набора, флот и острова, сохранение партии (кроме реплея), обучение, звук, арт-проход, Android-сборка, CI, локализация, Entities.
+
+## Изменения после первой балансной итерации (2026-11-20/21)
+
+По ревью `review-01-balance-run1.md`, решения Никты. Значения в таблицах раздела 9 выше — стартовые; текущие живут в `rules.json` и `ai.json`.
+
+- `front.surroundMult_bp = [5000, 10000, 20000, 40000]` — множитель окружения (PR 2).
+- `mapgen`: окно суши `minLandShare_bp` 4 500 / `maxLandShare_bp` 4 900, порог по размеру континента, нечестный старт → новая карта (PR 1); шаг 6½ — перемешивание id.
+- Фикс A: `garrisonPerEdge` 40, `capitalRadius` 28, `capitalMult_bp` 30 000, `defenseMultCap_bp` 60 000.
+- Фикс B: `strikeMinBattalions` заменён на `strikeSurplusBattalions` = 2, `strikeMinScore_bp` 13 000, `noise_bp` 800, новое `strikeCooldownTicks` = 600.
+- Фикс C: `expandChance_bp` 70.
