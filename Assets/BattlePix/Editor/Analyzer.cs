@@ -11,9 +11,10 @@ namespace BattlePix.Editor
     /// <summary>
     /// -analyze &lt;реплей&gt;: машинная половина метрики ворот 1 по партии человека.
     /// Проигрывает реплей с текущими правилами и считает: исход и минуту, принятые команды по типам,
-    /// решения за первые 10 минут (цель ≥ 10), фокус-эпизоды — отрезки ≥ 30 с, когда соединение человека наступало на одном
-    /// фронте, а другой существующий фронт стоял в обороне или пустой (цель ≥ 1), и наборы под рельеф — броня при доле
-    /// равнины фронта соединения ≥ 60%, пехота при ≤ 40% (цель ≥ 1). Метрика ворот 1 выполнена, если ≥ 1 по любой из двух.
+    /// решения за первые 10 минут (цель ≥ 10), фокус-эпизоды — отрезки ≥ 30 с, когда на одном фронте приказ «наступление»
+    /// и есть дивизии на месте, а другой существующий фронт в обороне или пустой (цель ≥ 1), наборы под рельеф — танковая
+    /// при доле равнины фронта наступления ≥ 60%, пехотная при ≤ 40% (цель ≥ 1), и ротации человека (01c §7).
+    /// Метрика ворот 1 выполнена, если ≥ 1 по фокусу или набору под рельеф.
     /// </summary>
     public static class Analyzer
     {
@@ -27,6 +28,7 @@ namespace BattlePix.Editor
             public int DecisionsFirst10Min;
             public List<string> FocusEpisodes = new List<string>();
             public int ArmorOnPlains, InfantryOffPlains;
+            public int Rotations;
             public bool Gate => FocusEpisodes.Count >= 1 || ArmorOnPlains + InfantryOffPlains >= 1;
             public List<string> Timeline = new List<string>();
         }
@@ -40,7 +42,7 @@ namespace BattlePix.Editor
             string dir = outDir ?? Path.GetDirectoryName(path);
             Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, "analysis.md"), md);
-            log($"analysis -> {Path.Combine(dir, "analysis.md")}: decisions in first 10 min {r.DecisionsFirst10Min} (goal >= 10), focus episodes {r.FocusEpisodes.Count}, terrain recruits {r.ArmorOnPlains + r.InfantryOffPlains}");
+            log($"analysis -> {Path.Combine(dir, "analysis.md")}: decisions in first 10 min {r.DecisionsFirst10Min} (goal >= 10), focus episodes {r.FocusEpisodes.Count}, terrain recruits {r.ArmorOnPlains + r.InfantryOffPlains}, rotations {r.Rotations}");
             return 0;
         }
 
@@ -67,6 +69,7 @@ namespace BattlePix.Editor
                     while (next < commands.Count && commands[next].Tick == w.Tick) sim.Enqueue(commands[next++]);
                     int tick = w.Tick;
                     sim.Step();
+                    if (w.Nation(h).Alive != 0) res.Rotations += ArmyStats.RotationsThisTick(w, h);
                     foreach (var c in sim.AppliedLastTick)
                     {
                         if (c.Nation != h || !GameCommands.IsGameCommand(c.Type)) continue;
@@ -127,6 +130,7 @@ namespace BattlePix.Editor
             sb.AppendLine($"- Решений за первые 10 минут: {r.DecisionsFirst10Min} (цель ≥ 10: {(r.DecisionsFirst10Min >= 10 ? "ок" : "провал")})");
             sb.AppendLine($"- Фокус-эпизоды (≥ 30 с): {r.FocusEpisodes.Count}" + (r.FocusEpisodes.Count > 0 ? " — " + string.Join(", ", r.FocusEpisodes) : ""));
             sb.AppendLine($"- Набор под рельеф: танковых при равнине ≥ 60% {r.ArmorOnPlains}, пехотных при равнине ≤ 40% {r.InfantryOffPlains}");
+            sb.AppendLine($"- Ротации (свежая дивизия пришла туда, где стоит выдохшаяся): {r.Rotations}");
             sb.AppendLine($"- Метрика ворот 1 (≥ 1 фокус-эпизод или набор под рельеф): {(r.Gate ? "ок" : "провал")}");
             sb.AppendLine();
             sb.AppendLine("## Решения");
