@@ -1,0 +1,21 @@
+{
+  "cellPx": 6,
+  "terraceOffsets": [0, 5, 10, 15, 20, 25, 30],
+  "bandLevels": { "plains": [1, 1], "hills": [2, 3], "mountains": [4, 6] },
+  "water": { "tones": ["#60ACD6", "#468CC8", "#346EB2", "#265496"], "toneDist": [1, 3, 7], "foam": "#96CEE8" },
+  "biomeTop": { "Beach": "#E8D6A0", "Grass": "#76B048", "Forest": "#3A803E", "Steppe": "#B6B262",
+                "Desert": "#E2C480", "Tundra": "#A4B29C", "Hills": "#829456", "Mountain": "#7A746E", "Snow": "#EEF2F6" },
+  "biomeWall": { "Beach": "#B89860", "Grass": "#7A5838", "Forest": "#684C32", "Steppe": "#886840",
+                 "Desert": "#BA8C52", "Tundra": "#6E7068", "Hills": "#6C5C46", "Mountain": "#4E4A4C", "Snow": "#787E8C" },
+  "topNoise_bp": 450, "levelLight_bp": 350, "rimLight_bp": 1300, "aoDark_bp": 2000,
+  "wallDarkToBottom_bp": 3500, "strataEvery": 4, "strataDark_bp": 1400,
+  "decorDensity_bp": { "Forest": 8500, "Grass": 500, "Tundra": 1400, "Snow": 500, "Desert": 450,
+                       "Hills": 1100, "Mountain": 900, "Steppe": 300 },
+  "tint_bp": { "half": [4200, 5000], "one": [3600, 4200], "two": [3000, 3600] },
+  "tintKindMult_bp": { "face": 10000, "wall": 6000, "decor": 3500 },
+  "border": { "linePx": 1, "fringePx": { "half": 2, "one": 2, "two": 3 },
+              "line": "#14121A", "ownFringe": "#FFFFFF", "otherFringeLight_bp": 2500,
+              "peaceLine": "#C8CCD4", "peaceAlpha_bp": 6000, "truceDash": 4 },
+  "fx": { "gainLight_bp": 4500, "lossDark_bp": 4500, "seconds": 1.0 },
+  "ocean": "#265496", "sky": "#265496"
+}

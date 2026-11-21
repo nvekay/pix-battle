@@ -59,5 +59,62 @@ namespace BattlePix.Core.Tests
             Assert.AreEqual(20, Reference.Length, "reference not recorded");
             for (int i = 0; i < 20; i++) Assert.AreEqual(Reference[i], got[i], $"seed {i + 1}: Owner/Terrain/capitals changed");
         }
+
+        [Test]
+        public void Seeds1To20_ElevationMonotoneAcrossBands_BiomeMatchesTerrain()
+        {
+            var config = TestData.Config();
+            var rules = TestData.Rules();
+            for (ulong seed = 1; seed <= 20; seed++)
+            using (var sim = new Simulation(config, rules, seed, 0, 0))
+            {
+                var w = sim.World;
+                var min = new[] { 256, 256, 256, 256 };
+                var max = new[] { -1, -1, -1, -1 };
+                var biomeCount = new int[10];
+                for (int i = 0; i < w.PixelCount; i++)
+                {
+                    int t = w.Terrain[i], e = w.Elevation[i];
+                    var b = (Biome)w.Biome[i];
+                    if (e < min[t]) min[t] = e;
+                    if (e > max[t]) max[t] = e;
+                    biomeCount[(int)b]++;
+                    if (t == (byte)Terrain.Water) Assert.AreEqual(Biome.None, b, $"seed {seed}: water biome at {i}");
+                    else Assert.AreNotEqual(Biome.None, b, $"seed {seed}: land without biome at {i}");
+                    if (t == (byte)Terrain.Hills) Assert.That(b == Biome.Hills || b == Biome.Forest, $"seed {seed}: hills biome {b}");
+                    if (t == (byte)Terrain.Mountains) Assert.That(b == Biome.Mountain || b == Biome.Snow, $"seed {seed}: mountain biome {b}");
+                    if (t == (byte)Terrain.Land) Assert.That(b != Biome.Hills && b != Biome.Mountain && b != Biome.Snow, $"seed {seed}: plains biome {b}");
+                }
+                // Корзина Elevation = bin × 255 / 1023: монотонна по bin, а полосы — пороги по bin.
+                // Вода может быть выше равнины: острова, срезанные при выборе континента, остаются водой.
+                Assert.LessOrEqual(max[(int)Terrain.Land], min[(int)Terrain.Hills], $"seed {seed}: plains above hills");
+                Assert.LessOrEqual(max[(int)Terrain.Hills], min[(int)Terrain.Mountains], $"seed {seed}: hills above mountains");
+                if (seed == 1)
+                    TestContext.WriteLine("biomes seed 1: " + string.Join(", ", biomeCount));
+                Assert.Greater(biomeCount[(int)Biome.Forest], 0, $"seed {seed}: no forest");
+                Assert.Greater(biomeCount[(int)Biome.Grass], 0, $"seed {seed}: no grass");
+            }
+        }
+
+        [Test]
+        public void BiomeKnobs_DoNotChangeOwnerTerrainCapitals_ButChangeBiome()
+        {
+            var config = TestData.Config();
+            var a = TestData.Rules();
+            var b = a.Clone();
+            b.MapGen.Biomes.ForestMoist_bp = 4000;
+            b.MapGen.Biomes.MoistureCells = new[] { 32, 16 };
+            for (ulong seed = 1; seed <= 5; seed++)
+            using (var s1 = new Simulation(config, a, seed, 0, 0))
+            using (var s2 = new Simulation(config, b, seed, 0, 0))
+            using (var s3 = new Simulation(config, a, seed, 0, 0))
+            {
+                Assert.AreEqual(WorldShapeHash(s1.World), WorldShapeHash(s2.World), $"seed {seed}: biome knobs moved the world");
+                CollectionAssert.AreEqual(s1.World.Elevation.ToArray(), s2.World.Elevation.ToArray(), $"seed {seed}: elevation");
+                CollectionAssert.AreNotEqual(s1.World.Biome.ToArray(), s2.World.Biome.ToArray(), $"seed {seed}: biome did not change");
+                CollectionAssert.AreEqual(s1.World.Biome.ToArray(), s3.World.Biome.ToArray(), $"seed {seed}: biome not deterministic");
+                Assert.AreEqual(s1.World.Rng.Get(RngStream.MapGen).State, s2.World.Rng.Get(RngStream.MapGen).State, $"seed {seed}: MapGen stream");
+            }
+        }
     }
 }

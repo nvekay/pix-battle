@@ -17,6 +17,8 @@ namespace BattlePix.Game
         public const string NationsFile = "nations.json";
         public const string RulesFile = "rules.json";
         public const string AiFile = "ai.json";
+        /// <summary>Только рендер (спека 02a §4.3): в DataHash не входит, смена цвета не ломает реплеи.</summary>
+        public const string PaletteFile = "palette.json";
 
         /// <summary>
         /// На Android StreamingAssets нельзя перечислить, поэтому там читаем этот список.
@@ -24,7 +26,14 @@ namespace BattlePix.Game
         /// </summary>
         static readonly string[] KnownFiles = { AiFile, NationsFile, RulesFile, ConfigFile };
 
+        /// <summary>Файлы, которые читает только рендер. Грузятся так же, но в DataHash не входят.</summary>
+        static readonly string[] RenderFiles = { PaletteFile };
+
+        /// <summary>Файлы, от которых зависит симуляция: по ним считается DataHash.</summary>
         public readonly List<KeyValuePair<string, byte[]>> Files = new List<KeyValuePair<string, byte[]>>();
+        public readonly List<KeyValuePair<string, byte[]>> Render = new List<KeyValuePair<string, byte[]>>();
+
+        static bool IsRenderFile(string name) => Array.IndexOf(RenderFiles, name) >= 0;
 
         public ulong DataHash => Fnv1a64.DataHash(Files);
 
@@ -36,8 +45,12 @@ namespace BattlePix.Game
         {
             foreach (var f in Files)
                 if (f.Key == name) return Encoding.UTF8.GetString(StripBom(f.Value));
+            foreach (var f in Render)
+                if (f.Key == name) return Encoding.UTF8.GetString(StripBom(f.Value));
             throw new FileNotFoundException("Data file not loaded: " + name);
         }
+
+        public PaletteData Palette() => PaletteData.FromJson(Text(PaletteFile));
 
         static byte[] StripBom(byte[] b)
         {
@@ -60,7 +73,7 @@ namespace BattlePix.Game
             {
                 if (path.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)) continue;
                 string rel = path.Substring(dataDir.Length).TrimStart('\\', '/').Replace('\\', '/');
-                data.Files.Add(new KeyValuePair<string, byte[]>(rel, File.ReadAllBytes(path)));
+                (IsRenderFile(rel) ? data.Render : data.Files).Add(new KeyValuePair<string, byte[]>(rel, File.ReadAllBytes(path)));
             }
             return data;
         }
@@ -78,7 +91,9 @@ namespace BattlePix.Game
             }
 
             var data = new GameData();
-            foreach (var name in KnownFiles)
+            var names = new List<string>(KnownFiles);
+            names.AddRange(RenderFiles);
+            foreach (var name in names)
             {
                 using (var req = UnityWebRequest.Get(DataDir + "/" + name))
                 {
@@ -88,7 +103,7 @@ namespace BattlePix.Game
                         fail($"{name}: {req.error}");
                         yield break;
                     }
-                    data.Files.Add(new KeyValuePair<string, byte[]>(name, req.downloadHandler.data));
+                    (IsRenderFile(name) ? data.Render : data.Files).Add(new KeyValuePair<string, byte[]>(name, req.downloadHandler.data));
                 }
             }
             done(data);

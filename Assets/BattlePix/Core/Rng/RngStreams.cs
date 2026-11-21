@@ -10,6 +10,8 @@ namespace BattlePix.Core
         Debug = 3,
         Ai = 4,
         Events = 5,
+        /// <summary>Влажность для биомов (спека 02a §5.1). Только картинка, но в хеше, как всё состояние генерации.</summary>
+        Biome = 6,
     }
 
     /// <summary>
@@ -26,6 +28,7 @@ namespace BattlePix.Core
             RngStream.Debug,
             RngStream.Ai,
             RngStream.Events,
+            RngStream.Biome,
         };
 
         readonly Pcg32[] _streams;

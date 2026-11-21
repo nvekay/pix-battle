@@ -6,7 +6,7 @@ namespace BattlePix.Core
 {
     /// <summary>
     /// Хеш состояния: FNV-1a 64 по байтам (int — 4 байта LE, short — 2 байта LE, ulong — 8 байт LE) в порядке:
-    /// 1) Tick, Owner, Terrain;
+    /// 1) Tick, Owner, Terrain, Elevation, Biome;
     /// 2) для каждой нации по id: Id, Alive, Capital, Pixels, Gold, Battalions, Formations, DiedAtTick,
     ///    RecruitedInf, RecruitedArmor, BattalionsLost;
     /// 3) Formations по слотам: Owner, Alive, Front, Order, ArriveTick;
@@ -32,6 +32,8 @@ namespace BattlePix.Core
                     Tick = world.Tick,
                     Owner = world.Owner,
                     Terrain = world.Terrain,
+                    Elevation = world.Elevation,
+                    Biome = world.Biome,
                     Nations = world.Nations,
                     Formations = world.Formations,
                     Battalions = world.Battalions,
@@ -58,6 +60,8 @@ namespace BattlePix.Core
         public int Tick;
         [ReadOnly] public NativeArray<byte>.ReadOnly Owner;
         [ReadOnly] public NativeArray<byte>.ReadOnly Terrain;
+        [ReadOnly] public NativeArray<byte>.ReadOnly Elevation;
+        [ReadOnly] public NativeArray<byte>.ReadOnly Biome;
         [ReadOnly] public NativeArray<NationState>.ReadOnly Nations;
         [ReadOnly] public NativeArray<Formation>.ReadOnly Formations;
         [ReadOnly] public NativeArray<Battalion>.ReadOnly Battalions;
@@ -92,6 +96,8 @@ namespace BattlePix.Core
             h = I(h, Tick);
             for (int i = 0; i < Owner.Length; i++) h = B(h, Owner[i]);
             for (int i = 0; i < Terrain.Length; i++) h = B(h, Terrain[i]);
+            for (int i = 0; i < Elevation.Length; i++) h = B(h, Elevation[i]);
+            for (int i = 0; i < Biome.Length; i++) h = B(h, Biome[i]);
 
             for (int i = 0; i < Nations.Length; i++)
             {
@@ -151,6 +157,8 @@ namespace BattlePix.Core
             h = Fnv1a64.AddInt32(h, world.Tick);
             h = Fnv1a64.Add(h, world.Owner.ToArray());
             h = Fnv1a64.Add(h, world.Terrain.ToArray());
+            h = Fnv1a64.Add(h, world.Elevation.ToArray());
+            h = Fnv1a64.Add(h, world.Biome.ToArray());
             var nations = world.Nations;
             for (int i = 0; i < nations.Length; i++)
             {

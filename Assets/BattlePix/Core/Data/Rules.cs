@@ -201,6 +201,8 @@ namespace BattlePix.Core
         /// <summary>Доля суши под холмами и горами (спека 01b §5.7): горы — самые высокие, холмы — следующие.</summary>
         [JsonProperty("hillsShare_bp")] public int HillsShare_bp = 2500;
         [JsonProperty("mountainsShare_bp")] public int MountainsShare_bp = 1000;
+        /// <summary>Биомы для картинки (спека 02a §4.1). Меняют хеш, но не баланс: на фронт не влияют.</summary>
+        [JsonProperty("biomes")] public BiomeRules Biomes = new BiomeRules();
 
         internal void Validate()
         {
@@ -217,6 +219,32 @@ namespace BattlePix.Core
             Rules.Require(MapRetries >= 1 && CapitalRetries >= 1, "rules.mapgen", "retries must be >= 1");
             Rules.Require(HillsShare_bp >= 0 && MountainsShare_bp >= 0 && HillsShare_bp + MountainsShare_bp <= 9000,
                 "rules.mapgen", "hillsShare_bp + mountainsShare_bp must be in 0..9000 (plains are needed for capitals)");
+            Rules.Require(Biomes != null, "rules.mapgen", "biomes is required");
+            Biomes.Validate();
+        }
+    }
+
+    /// <summary>Пороги биомов (спека 02a §4.1), все _bp в 0..10 000.</summary>
+    public sealed class BiomeRules
+    {
+        [JsonProperty("moistureCells")] public int[] MoistureCells = { 64, 32, 16, 8 };
+        [JsonProperty("forestMoist_bp")] public int ForestMoist_bp = 5800;
+        [JsonProperty("steppeMoist_bp")] public int SteppeMoist_bp = 4200;
+        [JsonProperty("desertMoist_bp")] public int DesertMoist_bp = 3300;
+        [JsonProperty("desertTemp_bp")] public int DesertTemp_bp = 5500;
+        [JsonProperty("tundraTemp_bp")] public int TundraTemp_bp = 2000;
+        [JsonProperty("snowShareOfMountains_bp")] public int SnowShareOfMountains_bp = 3500;
+        [JsonProperty("hillsForestMoist_bp")] public int HillsForestMoist_bp = 6200;
+        [JsonProperty("beachMaxDist")] public int BeachMaxDist = 1;
+
+        internal void Validate()
+        {
+            const string f = "rules.mapgen.biomes";
+            Rules.Require(MoistureCells != null && MoistureCells.Length >= 1 && MoistureCells.Length <= 8, f, "moistureCells must have 1..8 octaves");
+            foreach (var c in MoistureCells) Rules.Require(c >= 1, f, "moistureCells must be >= 1");
+            foreach (var v in new[] { ForestMoist_bp, SteppeMoist_bp, DesertMoist_bp, DesertTemp_bp, TundraTemp_bp, SnowShareOfMountains_bp, HillsForestMoist_bp })
+                Rules.Require(v >= 0 && v <= 10000, f, "_bp values must be in 0..10000");
+            Rules.Require(BeachMaxDist >= 0, f, "beachMaxDist must be >= 0");
         }
     }
 
